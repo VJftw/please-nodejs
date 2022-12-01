@@ -1,0 +1,129 @@
+"""
+"""
+
+def nodejs_toolchain(
+    name: str,
+    version: str,
+    visibility: list = ["PUBLIC"],
+):
+    arch = ""
+    if CONFIG.ARCH == "amd64":
+        arch = "x64"
+    else:
+        fail(f"Unsupported architecture: {CONFIG.ARCH}")
+
+    download=remote_file(
+        name = f"{name}#download",
+        url = f"https://nodejs.org/dist/v{version}/node-v{version}-{CONFIG.OS}-{arch}.tar.xz",
+        extract = True,
+        visibility = visibility,
+    )
+
+    venv=genrule(
+        name = f"{name}_venv",
+        srcs = [download],
+        outs = [f"{name}_venv"],
+        cmd = """
+mv $SRCS $OUTS
+
+cat <<EOF > $OUTS/venv.sh
+    DIR="\\\$( cd "\\\$( dirname "\\\${BASH_SOURCE[0]}" )" && pwd )"
+    export PATH="\\\$DIR/bin:$PATH"
+    echo "added \\\$DIR/bin to the path"
+EOF
+source $OUTS/venv.sh
+
+npm install --location=global npm yarn
+        """,
+        visibility = visibility,
+    )
+
+def nodejs_esbuild_toolchain(
+    name: str,
+    version: str,
+    visibility: list = ["PUBLIC"],
+):
+    arch = ""
+    if CONFIG.ARCH == "amd64":
+        arch = "64"
+    else:
+        fail(f"Unsupported architecture: {CONFIG.ARCH}")
+
+    remote_file(
+        name = name,
+        url = f"https://registry.npmjs.org/esbuild-{CONFIG.OS}-{arch}/-/esbuild-{CONFIG.OS}-{arch}-{version}.tgz",
+        extract = True,
+        binary = True,
+        visibility = visibility,
+        exported_files = [
+            "package/bin/esbuild",
+        ],
+    )
+
+def nodejs_npm_package(
+    name: str,
+    version: str,
+    toolchain: str,
+    visibility = ["PUBLIC"],
+):
+    # package_json={
+    #     "dependencies": {
+    #         name: version,
+    #     },
+    # }
+    # package_json_str=json(package_json)
+    genrule(
+        name = name,
+        tools = [f"{toolchain}_venv"],
+        sandbox = False,
+        cmd = f"""
+set -Eeuo pipefail
+source $TOOLS/venv.sh
+npm pack {name}@{version}
+mv {name}-{version}.tgz $OUTS
+        """,
+        # We can now reference this dependency directly in a package.json
+        # https://dev.to/scooperdev/use-npm-pack-to-test-your-packages-locally-486e#:~:text=Fourth%3A%20Point%20package.json%20to%20your%20file
+        outs = [f"{name}@{version}.tgz"],
+        visibility = visibility,
+    )
+
+def nodejs_esbuild_bundle(
+    name: str,
+    deps: list = [], # ./node_modules/
+    toolchain: str,
+):
+
+    # genrule(
+    #     name = f"{name}_node_modules",
+    #     srcs = []
+    # )
+    genrule(
+        name = name,
+        sandbox = True,
+        srcs = {
+            "deps": deps,
+        },
+        tools = [f"{toolchain}_venv", "//third_party/binary:jq"],
+        outs = [name],
+        cmd = f"""
+set -Eeuo pipefail
+JQ=$(exe //third_party/binary:jq)
+# create package.json based on SRCS_DEPS
+echo '{{"dependencies": {{}}}}' > package.json
+for srcs_dep in $SRCS_DEPS; do
+    pkg_name="$(echo "$srcs_dep" | cut -f1 -d\\@ | xargs basename)"
+
+    $JQ \\
+        --arg n "$pkg_name" \\
+        --arg v "$srcs_dep" \\
+        '.dependencies[$n] = $v' \\
+        package.json >> package.json.new
+    mv package.json.new package.json
+done
+source $(location {toolchain}_venv)/venv.sh
+npm install
+        mkdir $OUTS
+        cp package.json $OUTS/package.json
+        """,
+    )
