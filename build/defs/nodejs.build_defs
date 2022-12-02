@@ -66,20 +66,19 @@ def nodejs_npm_package(
     toolchain: str,
     visibility = ["PUBLIC"],
 ):
-    # package_json={
-    #     "dependencies": {
-    #         name: version,
-    #     },
-    # }
-    # package_json_str=json(package_json)
     genrule(
         name = name,
-        tools = [f"{toolchain}_venv"],
-        sandbox = False,
+        tools = [
+            f"{toolchain}_venv",
+            "//third_party/binary:jq",
+        ],
         cmd = f"""
 set -Eeuo pipefail
-source $TOOLS/venv.sh
+JQ=$(exe //third_party/binary:jq)
+
+source $(location {toolchain}_venv)/venv.sh
 npm pack {name}@{version}
+
 mv {name}-{version}.tgz $OUTS
         """,
         # We can now reference this dependency directly in a package.json
@@ -90,40 +89,111 @@ mv {name}-{version}.tgz $OUTS
 
 def nodejs_esbuild_bundle(
     name: str,
-    deps: list = [], # ./node_modules/
+    srcs: list = [],
+    deps: list = [],
+    esbuild_args: list = [],
+    browser: bool = False,
+    browsers: list = ["chrome58","firefox57","safari11","edge16"],
     toolchain: str,
 ):
+    if browser:
+        browser_flag=",".join(browsers)
+        esbuild_args+=["--minify", "--sourcemap", f"--target={browser_flag}"]
 
-    # genrule(
-    #     name = f"{name}_node_modules",
-    #     srcs = []
-    # )
-    genrule(
-        name = name,
-        sandbox = True,
+    package_json=genrule(
+        name = f"{name}_package_json",
         srcs = {
-            "deps": deps,
+            "deps": deps + ["//third_party/nodejs:pkg"],
         },
-        tools = [f"{toolchain}_venv", "//third_party/binary:jq"],
-        outs = [name],
+        tools = ["//third_party/binary:jq"],
+        outs = [f"{name}_package.json"],
         cmd = f"""
 set -Eeuo pipefail
 JQ=$(exe //third_party/binary:jq)
-# create package.json based on SRCS_DEPS
+
+# add dependencies
 echo '{{"dependencies": {{}}}}' > package.json
 for srcs_dep in $SRCS_DEPS; do
     pkg_name="$(echo "$srcs_dep" | cut -f1 -d\\@ | xargs basename)"
 
     $JQ \\
         --arg n "$pkg_name" \\
-        --arg v "$srcs_dep" \\
+        --arg v "file:$srcs_dep" \\
         '.dependencies[$n] = $v' \\
         package.json >> package.json.new
     mv package.json.new package.json
 done
-source $(location {toolchain}_venv)/venv.sh
-npm install
-        mkdir $OUTS
-        cp package.json $OUTS/package.json
+
+mv package.json $OUTS
         """,
     )
+
+    node_modules=genrule(
+        name = f"{name}_node_modules",
+        srcs = {
+            "package_json": [package_json],
+        },
+        tools = [f"{toolchain}_venv"],
+        outs = [f"{name}_node_modules"],
+        deps = deps + ["//third_party/nodejs:pkg"],
+        cmd = f"""
+set -Eeuo pipefail
+source $(location {toolchain}_venv)/venv.sh
+
+mv $SRCS_PACKAGE_JSON package.json
+npm install
+
+mv node_modules $OUTS
+        """,
+    )
+
+    esbuild_args_cmd=" ".join(esbuild_args)
+    extra_cmds=""
+    if not browser:
+        genrule(
+            name = name,
+            srcs = {
+                "package_json": [package_json],
+                "node_modules": [node_modules],
+                "srcs": srcs,
+            },
+            tools = [
+                "//third_party/nodejs:esbuild",
+                f"{toolchain}_venv",
+            ],
+            outs = [name],
+            cmd = f"""
+set -Eeuo pipefail
+mv $SRCS_PACKAGE_JSON package.json
+mv $SRCS_NODE_MODULES node_modules
+$(exe //third_party/nodejs:esbuild) \\
+    --bundle {esbuild_args_cmd} \\
+    --outfile=out.js \\
+    $SRCS_SRCS
+
+source $(location {toolchain}_venv)/venv.sh
+npx pkg -t node18-linux-x64 out.js
+mv out $OUTS
+            """,
+            binary = True,
+        )
+    else:
+        genrule(
+            name = name,
+            srcs = {
+                "package_json": [package_json],
+                "node_modules": [node_modules],
+                "srcs": srcs,
+            },
+            tools = ["//third_party/nodejs:esbuild"],
+            outs = [f"{name}.js"],
+            cmd = f"""
+set -Eeuo pipefail
+mv $SRCS_PACKAGE_JSON package.json
+mv $SRCS_NODE_MODULES node_modules
+$TOOLS \\
+    --bundle {esbuild_args_cmd} \\
+    --outfile=$OUTS \\
+    $SRCS_SRCS
+            """,
+        )
