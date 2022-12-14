@@ -6,9 +6,6 @@ import (
 	"net/http"
 	"net/url"
 	"path"
-	"sort"
-
-	"github.com/Masterminds/semver/v3"
 )
 
 type Client struct {
@@ -91,69 +88,4 @@ func (c *Client) PackageVersion(name string, version string) (*PackageVersionDat
 	}
 
 	return pvd, err
-}
-
-type PackageMetadata struct {
-	Name     string                         `json:"name"`
-	Versions map[string]*PackageVersionData `json:"versions"`
-}
-
-func (m *PackageMetadata) GetLatestCompatibleVersionData(constraint string) (*PackageVersionData, error) {
-	coll := []*semver.Version{}
-	for v := range m.Versions {
-		semver, err := semver.NewVersion(v)
-		if err != nil {
-			return nil, err
-		}
-
-		coll = append(coll, semver)
-	}
-
-	sort.Sort(sort.Reverse(semver.Collection(coll)))
-
-	versionConstraint, err := semver.NewConstraint(constraint)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, v := range coll {
-		if versionConstraint.Check(v) {
-			return m.Versions[v.Original()], nil
-		}
-	}
-
-	return nil, fmt.Errorf("could not find compatible version of '%s' for '%s'", m.Name, constraint)
-}
-
-type PackageVersionData struct {
-	Name         string            `json:"name"`
-	Version      string            `json:"version"`
-	License      string            `json:"license"`
-	Dependencies map[string]string `json:"dependencies"`
-}
-
-type PackageVersionDataLicense string
-
-func (pvd *PackageVersionData) UnmarshalJSON(b []byte) error {
-
-	type PackageVersionDataAlias PackageVersionData
-	aux := &struct {
-		*PackageVersionDataAlias
-		License interface{} `json:"license"`
-	}{
-		PackageVersionDataAlias: (*PackageVersionDataAlias)(pvd),
-	}
-
-	if err := json.Unmarshal(b, aux); err != nil {
-		return err
-	}
-
-	switch v := aux.License.(type) {
-	case string:
-		pvd.License = v
-	case map[string]interface{}:
-		pvd.License = v["type"].(string)
-	}
-
-	return nil
 }

@@ -92,8 +92,6 @@ func (bf *BuildFile) EnsureSubinclude(target string) error {
 		bf.Stmt = append([]build.Expr{subincludeRule.Call}, bf.Stmt...)
 	}
 
-	// TODO: figure out how to update rule, maybe it's fine as it's a pointer?
-
 	return nil
 }
 

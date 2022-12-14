@@ -5,10 +5,13 @@ go_binary(
     srcs = [
         "install.go",
         "main.go",
+        "npmpackagedeps.go",
+        "packagejson.go",
     ],
     visibility = ["PUBLIC"],
     deps = [
         "//pkg/npm",
+        "//pkg/npm/pnpm",
         "//pkg/please",
         "//pkg/please/nodejs",
         "//third_party/go/github.com/mattn/go-isatty",

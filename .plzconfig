@@ -40,6 +40,17 @@ Optional = true
 Help = "Sets the given Please target as the Vercel pkg npm package to use to build JS binaries."
 DefaultValue = "//third_party/nodejs/pkg:pkg_5.8.0"
 
+[PluginConfig "default_npm_registry"]
+ConfigKey = DefaultNPMRegistry
+Optional = true
+Help = "Sets the given address as the default NPM registry."
+DefaultValue = "registry.npmjs.org"
+
+[PluginConfig "pnpm_tool"]
+ConfigKey = PnpmTool
+Optional = true
+Help = "Sets the given target to use as 'pnpm'."
+DefaultValue = "//third_party/binary:pnpm"
 
 ; Use the plugin in this repository for tests.
 [Plugin "nodejs"]

@@ -68,7 +68,7 @@ BUILD files. e.g.:
 				Workers:       cCtx.Int("workers"),
 				BufferLength:  cCtx.Int("buffer_length"),
 				Toolchain:     cCtx.String("toolchain"),
-				Registry:      cCtx.String("registry"),
+				Registry:      npmClient.BaseURL.Host,
 				Structured:    cCtx.Bool("structured"),
 				PackagePrefix: cCtx.String("pkg_prefix"),
 			}, npmClient)

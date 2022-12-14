@@ -19,7 +19,6 @@ def nodejs_toolchain(
         visibility = visibility,
     )
 
-    # TODO: move to please_nodejs tool.
     venv=genrule(
         name = name,
         srcs = [download],
@@ -64,7 +63,7 @@ def nodejs_npm_package(
     package_name: str = None,
     version: str,
     license: str = None,
-    registry: str = "registry.npmjs.org", # TODO: replace w/ npm scopes.
+    registry: str = None,
     toolchain: str = None,
     visibility = ["PUBLIC"],
     deps: list = [],
@@ -74,60 +73,107 @@ def nodejs_npm_package(
 
     if not toolchain and not CONFIG.NODEJS.DEFAULT_TOOLCHAIN:
         fail("no 'toolchain' or 'nodejs.DefaultToolchain' specified.")
-
     toolchain = toolchain or CONFIG.NODEJS.DEFAULT_TOOLCHAIN
 
-    safe_package_name=package_name.replace("/", "_")
+    if not registry and not CONFIG.NODEJS.DEFAULT_NPM_REGISTRY:
+        fail("no 'registry' or 'nodejs.DefaultNPMRegistry' specified.")
 
-    # TODO: move to please_nodejs tool.
+    registry = registry or CONFIG.NODEJS.DEFAULT_NPM_REGISTRY
+
+    please_nodejs_tool = CONFIG.NODEJS.TOOL
+    pnpm_tool = CONFIG.NODEJS.PNPM_TOOL
+
+    # npm packages can't have '*'s in them, so we can use that as a replacement
+    # for the directory separator.
+    safe_package_name=package_name.replace("/", "*")
+
     genrule(
         name = name,
         tools = [
+            please_nodejs_tool,
             toolchain,
-            "//third_party/binary:jq",
-            "//third_party/binary:pnpm",
+            pnpm_tool,
         ],
         deps = deps,
         cmd = f"""
-set -Eeuo pipefail
-source $(location {toolchain})/venv.sh
-jq="$(exe //third_party/binary:jq)"
-pnpm="$(exe //third_party/binary:pnpm)"
+        set -Eeuo pipefail
+        source $(location {toolchain})/venv.sh
+        pnpm="$(exe //third_party/binary:pnpm)"
 
-"$pnpm" store add {package_name}@{version}
+        "$pnpm" store add {package_name}@{version}
 
-# verify that dependencies are available
-mapfile -t dependencies_csv < <("$jq" -r \\
-    '.versions["{version}"] | select(.dependencies != null) | .dependencies | to_entries[] | .key+","+.value' \\
-    .cache/pnpm/metadata/{registry}/{package_name}.json
-)
+        # verify that dependencies are available
+        "$(exe {please_nodejs_tool})" \\
+            --log_format=console \\
+            npmpackagedeps \\
+            --registry="{registry}" \\
+            --name="{package_name}" \\
+            --version="{version}"
 
-mapfile -t available_dependencies < <(find . -name '*.tgz' -exec basename {{}} \;)
-
-for dependency_csv in "${{dependencies_csv[@]}}"; do
-    dep_name="$(echo "$dependency_csv" | cut -f1 -d,)"
-    safe_dep_name="$(echo "$dep_name" | sed 's#/#_#g')"
-    dep_constraint="$(echo "$dependency_csv" | cut -f2- -d,)"
-
-    if [[ ! " ${{available_dependencies[*]}} " =~ " ${{safe_dep_name}}"* ]]; then
-        echo "
-$dep_name ($dep_constraint) is missing from deps.
-available deps:
-$(printf '  %s\n' ${{available_dependencies[@]}})
-        "
-        exit 1
-    fi
-done
-
-safe_pkg_name="$(echo "{package_name}" | sed 's#/#_#g')"
-
-tar -czf $safe_pkg_name-{version}.tgz .local .cache
-
-mv $safe_pkg_name-{version}.tgz $OUTS
+        safe_pkg_name="$(echo "{package_name}" | sed 's#/#_#g')"
+        tar -czf $safe_pkg_name-{version}.tgz .local .cache
+        mv $safe_pkg_name-{version}.tgz $OUTS
         """,
         outs = [f"{safe_package_name}@{version}.tgz"],
         visibility = visibility,
         exported_deps = deps,
+    )
+
+def nodejs_package_json(
+    name: str,
+    deps: list = [],
+):
+    please_nodejs_tool = CONFIG.NODEJS.TOOL
+
+    return genrule(
+        name = name,
+        deps = deps,
+        needs_transitive_deps = True,
+        tools = [please_nodejs_tool],
+        outs = [f"{name}_package.json"],
+        cmd = f"""
+        set -Eeuo pipefail
+        "$(exe {please_nodejs_tool})" \\
+            --log_format=console \\
+            packagejson \\
+            --out="$OUTS"
+        """,
+    )
+
+def nodejs_node_modules(
+    name: str,
+    package_json: str,
+    toolchain: str,
+    deps: list = [],
+):
+    pnpm_tool = CONFIG.NODEJS.PNPM_TOOL
+
+    return genrule(
+        name = name,
+        srcs = {
+            "package_json": [package_json],
+        },
+        needs_transitive_deps = True,
+        sandbox = True,
+        tools = [
+            toolchain,
+            pnpm_tool,
+        ],
+        outs = [name],
+        deps = deps,
+        cmd = f"""
+        set -Eeuo pipefail
+
+        source $(location {toolchain})/venv.sh
+        pnpm="$(exe {pnpm_tool})"
+
+        find . -name '*.tgz' -exec tar -xzf {{}} \;
+
+        mv $SRCS_PACKAGE_JSON package.json
+        "$pnpm" install --offline
+
+        mv node_modules $OUTS
+        """,
     )
 
 def nodejs_esbuild_bundle(
@@ -146,75 +192,16 @@ def nodejs_esbuild_bundle(
     if not browser:
         deps += [CONFIG.NODEJS.VERCEL_PKG_DEP]
 
-    # TODO: move to please_nodejs tool.
-    package_json=genrule(
-        name = f"{name}_package_json",
+    package_json = nodejs_package_json(
+        name = tag(name, "package_json"),
         deps = deps,
-        needs_transitive_deps = True,
-        tools = [
-            "//third_party/binary:jq",
-        ],
-        outs = [f"{name}_package.json"],
-        cmd = f"""
-set -Eeuo pipefail
-JQ=$(exe //third_party/binary:jq)
-
-# add dependencies
-echo '{{"dependencies": {{}}}}' > package.json
-for srcs_dep in $(find . -name '*.tgz'); do
-    # TODO: fix when pkgs start with an @
-    pkg_file="$(echo "$srcs_dep" | xargs basename)"
-    pkg_name=""
-    pkg_version=""
-    if [[ "$pkg_file" == "@"* ]]; then
-        # scoped pkg
-        pkg_name=""
-        pkg_file="$(echo "$pkg_file" | cut -f2- -d\\@)"
-        pkg_name="@$(echo "$pkg_file" | cut -f1 -d\\@ | sed 's#_#/#g')"
-    else
-        pkg_name="$pkg_name$(echo "$pkg_file" | cut -f1 -d\\@)"
-    fi
-    pkg_version="$(echo "$pkg_file" | cut -f2 -d\\@ | sed 's/.tgz//g')"
-
-    $JQ \\
-        --arg n "$pkg_name" \\
-        --arg v "$pkg_version" \\
-        '.dependencies[$n] = $v' \\
-        package.json >> package.json.new
-    mv package.json.new package.json
-done
-
-mv package.json $OUTS
-        """,
     )
 
-    # TODO: move to please_nodejs tool.
-    node_modules=genrule(
-        name = f"{name}_node_modules",
-        srcs = {
-            "package_json": [package_json],
-        },
-        needs_transitive_deps = True,
-        sandbox = True,
-        tools = [
-            f"{toolchain}",
-            "//third_party/binary:pnpm",
-        ],
-        outs = [f"{name}_node_modules"],
+    node_modules=nodejs_node_modules(
+        name = tag(name, "node_modules"),
+        package_json = package_json,
         deps = deps,
-        cmd = f"""
-set -Eeuo pipefail
-
-source $(location {toolchain})/venv.sh
-pnpm="$(exe //third_party/binary:pnpm)"
-
-find . -name '*.tgz' -exec tar -xzf {{}} \;
-
-mv $SRCS_PACKAGE_JSON package.json
-"$pnpm" install --offline
-
-mv node_modules $OUTS
-        """,
+        toolchain = toolchain,
     )
 
     # Build w/ esbuild.
@@ -256,6 +243,7 @@ mv out $OUTS
     else:
         genrule(
             name = name,
+            sandbox = True,
             srcs = {
                 "package_json": [package_json],
                 "node_modules": [node_modules],

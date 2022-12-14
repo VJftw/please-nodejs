@@ -1,19 +1,18 @@
 subinclude("///go//build_defs:go")
 
 go_library(
-    name = "npm",
+    name = "pnpm",
     srcs = [
-        "client.go",
-        "packagejson.go",
-        "packagemetadata.go",
-        "packageversiondata.go",
+        "cache.go",
+        "depsmanager.go",
     ],
     visibility = [
         "//cmd/...",
-        "//pkg/...",
     ],
     deps = [
+        "//pkg/npm",
         "//third_party/go/github.com/Masterminds/semver/v3",
+        "//third_party/go/github.com/mitchellh/go-homedir",
         "//third_party/go/github.com/rs/zerolog",
     ],
 )
