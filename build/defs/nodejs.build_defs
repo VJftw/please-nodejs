@@ -19,10 +19,11 @@ def nodejs_toolchain(
         visibility = visibility,
     )
 
+    # TODO: move to please_nodejs tool.
     venv=genrule(
-        name = f"{name}_venv",
+        name = name,
         srcs = [download],
-        outs = [f"{name}_venv"],
+        outs = [name],
         cmd = """
 mv $SRCS $OUTS
 
@@ -32,8 +33,6 @@ cat <<EOF > $OUTS/venv.sh
     echo "added \\\$DIR/bin to the path"
 EOF
 source $OUTS/venv.sh
-
-npm install --location=global npm yarn
         """,
         visibility = visibility,
     )
@@ -62,29 +61,73 @@ def nodejs_esbuild_toolchain(
 
 def nodejs_npm_package(
     name: str,
+    package_name: str = None,
     version: str,
-    toolchain: str,
+    license: str = None,
+    registry: str = "registry.npmjs.org", # TODO: replace w/ npm scopes.
+    toolchain: str = None,
     visibility = ["PUBLIC"],
+    deps: list = [],
 ):
+    if not package_name:
+        package_name = name
+
+    if not toolchain and not CONFIG.NODEJS.DEFAULT_TOOLCHAIN:
+        fail("no 'toolchain' or 'nodejs.DefaultToolchain' specified.")
+
+    toolchain = toolchain or CONFIG.NODEJS.DEFAULT_TOOLCHAIN
+
+    safe_package_name=package_name.replace("/", "_")
+
+    # TODO: move to please_nodejs tool.
     genrule(
         name = name,
         tools = [
-            f"{toolchain}_venv",
+            toolchain,
             "//third_party/binary:jq",
+            "//third_party/binary:pnpm",
         ],
+        deps = deps,
         cmd = f"""
 set -Eeuo pipefail
-JQ=$(exe //third_party/binary:jq)
+source $(location {toolchain})/venv.sh
+jq="$(exe //third_party/binary:jq)"
+pnpm="$(exe //third_party/binary:pnpm)"
 
-source $(location {toolchain}_venv)/venv.sh
-npm pack {name}@{version}
+"$pnpm" store add {package_name}@{version}
 
-mv {name}-{version}.tgz $OUTS
+# verify that dependencies are available
+mapfile -t dependencies_csv < <("$jq" -r \\
+    '.versions["{version}"] | select(.dependencies != null) | .dependencies | to_entries[] | .key+","+.value' \\
+    .cache/pnpm/metadata/{registry}/{package_name}.json
+)
+
+mapfile -t available_dependencies < <(find . -name '*.tgz' -exec basename {{}} \;)
+
+for dependency_csv in "${{dependencies_csv[@]}}"; do
+    dep_name="$(echo "$dependency_csv" | cut -f1 -d,)"
+    safe_dep_name="$(echo "$dep_name" | sed 's#/#_#g')"
+    dep_constraint="$(echo "$dependency_csv" | cut -f2- -d,)"
+
+    if [[ ! " ${{available_dependencies[*]}} " =~ " ${{safe_dep_name}}"* ]]; then
+        echo "
+$dep_name ($dep_constraint) is missing from deps.
+available deps:
+$(printf '  %s\n' ${{available_dependencies[@]}})
+        "
+        exit 1
+    fi
+done
+
+safe_pkg_name="$(echo "{package_name}" | sed 's#/#_#g')"
+
+tar -czf $safe_pkg_name-{version}.tgz .local .cache
+
+mv $safe_pkg_name-{version}.tgz $OUTS
         """,
-        # We can now reference this dependency directly in a package.json
-        # https://dev.to/scooperdev/use-npm-pack-to-test-your-packages-locally-486e#:~:text=Fourth%3A%20Point%20package.json%20to%20your%20file
-        outs = [f"{name}@{version}.tgz"],
+        outs = [f"{safe_package_name}@{version}.tgz"],
         visibility = visibility,
+        exported_deps = deps,
     )
 
 def nodejs_esbuild_bundle(
@@ -100,12 +143,17 @@ def nodejs_esbuild_bundle(
         browser_flag=",".join(browsers)
         esbuild_args+=["--minify", "--sourcemap", f"--target={browser_flag}"]
 
+    if not browser:
+        deps += [CONFIG.NODEJS.VERCEL_PKG_DEP]
+
+    # TODO: move to please_nodejs tool.
     package_json=genrule(
         name = f"{name}_package_json",
-        srcs = {
-            "deps": deps + ["//third_party/nodejs:pkg"],
-        },
-        tools = ["//third_party/binary:jq"],
+        deps = deps,
+        needs_transitive_deps = True,
+        tools = [
+            "//third_party/binary:jq",
+        ],
         outs = [f"{name}_package.json"],
         cmd = f"""
 set -Eeuo pipefail
@@ -113,12 +161,24 @@ JQ=$(exe //third_party/binary:jq)
 
 # add dependencies
 echo '{{"dependencies": {{}}}}' > package.json
-for srcs_dep in $SRCS_DEPS; do
-    pkg_name="$(echo "$srcs_dep" | cut -f1 -d\\@ | xargs basename)"
+for srcs_dep in $(find . -name '*.tgz'); do
+    # TODO: fix when pkgs start with an @
+    pkg_file="$(echo "$srcs_dep" | xargs basename)"
+    pkg_name=""
+    pkg_version=""
+    if [[ "$pkg_file" == "@"* ]]; then
+        # scoped pkg
+        pkg_name=""
+        pkg_file="$(echo "$pkg_file" | cut -f2- -d\\@)"
+        pkg_name="@$(echo "$pkg_file" | cut -f1 -d\\@ | sed 's#_#/#g')"
+    else
+        pkg_name="$pkg_name$(echo "$pkg_file" | cut -f1 -d\\@)"
+    fi
+    pkg_version="$(echo "$pkg_file" | cut -f2 -d\\@ | sed 's/.tgz//g')"
 
     $JQ \\
         --arg n "$pkg_name" \\
-        --arg v "file:$srcs_dep" \\
+        --arg v "$pkg_version" \\
         '.dependencies[$n] = $v' \\
         package.json >> package.json.new
     mv package.json.new package.json
@@ -128,25 +188,36 @@ mv package.json $OUTS
         """,
     )
 
+    # TODO: move to please_nodejs tool.
     node_modules=genrule(
         name = f"{name}_node_modules",
         srcs = {
             "package_json": [package_json],
         },
-        tools = [f"{toolchain}_venv"],
+        needs_transitive_deps = True,
+        sandbox = True,
+        tools = [
+            f"{toolchain}",
+            "//third_party/binary:pnpm",
+        ],
         outs = [f"{name}_node_modules"],
-        deps = deps + ["//third_party/nodejs:pkg"],
+        deps = deps,
         cmd = f"""
 set -Eeuo pipefail
-source $(location {toolchain}_venv)/venv.sh
+
+source $(location {toolchain})/venv.sh
+pnpm="$(exe //third_party/binary:pnpm)"
+
+find . -name '*.tgz' -exec tar -xzf {{}} \;
 
 mv $SRCS_PACKAGE_JSON package.json
-npm install
+"$pnpm" install --offline
 
 mv node_modules $OUTS
         """,
     )
 
+    # Build w/ esbuild.
     esbuild_args_cmd=" ".join(esbuild_args)
     extra_cmds=""
     if not browser:
@@ -156,10 +227,11 @@ mv node_modules $OUTS
                 "package_json": [package_json],
                 "node_modules": [node_modules],
                 "srcs": srcs,
+                "pkg_cache": ["//third_party/nodejs:node-v18.5.0-linux-x64"],
             },
             tools = [
                 "//third_party/nodejs:esbuild",
-                f"{toolchain}_venv",
+                f"{toolchain}",
             ],
             outs = [name],
             cmd = f"""
@@ -171,11 +243,15 @@ $(exe //third_party/nodejs:esbuild) \\
     --outfile=out.js \\
     $SRCS_SRCS
 
-source $(location {toolchain}_venv)/venv.sh
+source $(location {toolchain})/venv.sh
+mkdir -p ~/.pkg-cache/v3.4/
+mv $SRCS_PKG_CACHE ~/.pkg-cache/v3.4/fetched-v18.5.0-linux-x64
 npx pkg -t node18-linux-x64 out.js
 mv out $OUTS
             """,
             binary = True,
+            sandbox = True,
+            # TODO: pre-populating cache for pkg without hardcoding in a separate build rule/build def.
         )
     else:
         genrule(

@@ -5,11 +5,10 @@ nodejs_esbuild_bundle(
     srcs = [
         "app.jsx",
     ],
+    toolchain = "//third_party/nodejs:nodejs",
     # browser = True,
     deps = [
-        # TODO: these deps still install their dependencies
-        "//test/esbuild/react-dom/third_party/nodejs:react",
-        "//test/esbuild/react-dom/third_party/nodejs:react-dom",
+        "//test/esbuild/react-dom/third_party/nodejs:react_18.2.0",
+        "//test/esbuild/react-dom/third_party/nodejs:react-dom_18.2.0",
     ],
-    toolchain = "//third_party/nodejs:nodejs",
 )

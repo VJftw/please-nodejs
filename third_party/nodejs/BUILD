@@ -10,8 +10,8 @@ nodejs_esbuild_toolchain(
     version = "0.15.16",
 )
 
-nodejs_npm_package(
-    name = "pkg",
-    version = "5.8.0",
-    toolchain = "//third_party/nodejs:nodejs",
+remote_file(
+    name = "node-v18.5.0-linux-x64",
+    url = "https://github.com/vercel/pkg-fetch/releases/download/v3.4/node-v18.5.0-linux-x64",
+    visibility = ["PUBLIC"],
 )
