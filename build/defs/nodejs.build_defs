@@ -1,4 +1,4 @@
-"""
+"""Build rules for working with NodeJS (https://nodejs.org/)
 """
 
 def nodejs_toolchain(
@@ -6,6 +6,12 @@ def nodejs_toolchain(
     version: str,
     visibility: list = ["PUBLIC"],
 ):
+    """Build rule for obtaining a version of the NodeJS toolchain.
+    Args:
+        name: The name of the build rule.
+        version: The version of NodeJS to download.
+        visibility: The targets to make the toolchain visibile to.
+    """
     arch = ""
     if CONFIG.ARCH == "amd64":
         arch = "x64"
@@ -24,14 +30,14 @@ def nodejs_toolchain(
         srcs = [download],
         outs = [name],
         cmd = """
-mv $SRCS $OUTS
+        mv $SRCS $OUTS
 
 cat <<EOF > $OUTS/venv.sh
-    DIR="\\\$( cd "\\\$( dirname "\\\${BASH_SOURCE[0]}" )" && pwd )"
-    export PATH="\\\$DIR/bin:$PATH"
-    echo "added \\\$DIR/bin to the path"
+DIR="\\\$( cd "\\\$( dirname "\\\${BASH_SOURCE[0]}" )" && pwd )"
+export PATH="\\\$DIR/bin:$PATH"
+echo "added \\\$DIR/bin to the path"
 EOF
-source $OUTS/venv.sh
+        source $OUTS/venv.sh
         """,
         visibility = visibility,
     )
@@ -41,6 +47,12 @@ def nodejs_esbuild_toolchain(
     version: str,
     visibility: list = ["PUBLIC"],
 ):
+    """ Build rule for obtaining a version of ESBuild.
+    Args:
+        name: The name of the build rule.
+        version: The version of ESBuild to download.
+        visibility: The targets to make the toolchain visible to.
+    """
     arch = ""
     if CONFIG.ARCH == "amd64":
         arch = "64"
@@ -62,26 +74,35 @@ def nodejs_npm_package(
     name: str,
     package_name: str = None,
     version: str,
+    deps: list = [],
     license: str = None,
+    visibility = [],
     registry: str = None,
     toolchain: str = None,
-    visibility = ["PUBLIC"],
-    deps: list = [],
+    please_nodejs_tool: str = None,
+    pnpm_tool: str = None,
 ):
+    """ Build rule for obtaining a remote NPM package from a registry.
+    Args:
+        name: The name of the build rule.
+        package_name: The name of the package to download if it is different
+                      from the name.
+        version: The version of the package to download.
+        deps: The other packages that this package depends on.
+        license: The license that the package has.
+        visibility: The targets to make the package visible to.
+        registry: The registry to download the package from. This defaults to 'DefaultNPMRegistry'.
+        toolchain: The toolchain to use to download the package. This defaults to 'DefaultToolchain'.
+        please_nodejs_tool: The Please NodeJS tool to use. This defaults to 'Tool'.
+        pnpm_tool: The 'pnpm' tool to use. This defaults to 'PNPMTool'.
+    """
     if not package_name:
         package_name = name
 
-    if not toolchain and not CONFIG.NODEJS.DEFAULT_TOOLCHAIN:
-        fail("no 'toolchain' or 'nodejs.DefaultToolchain' specified.")
-    toolchain = toolchain or CONFIG.NODEJS.DEFAULT_TOOLCHAIN
-
-    if not registry and not CONFIG.NODEJS.DEFAULT_NPM_REGISTRY:
-        fail("no 'registry' or 'nodejs.DefaultNPMRegistry' specified.")
-
-    registry = registry or CONFIG.NODEJS.DEFAULT_NPM_REGISTRY
-
-    please_nodejs_tool = CONFIG.NODEJS.TOOL
-    pnpm_tool = CONFIG.NODEJS.PNPM_TOOL
+    toolchain = _param_or_global("toolchain", toolchain, "DefaultToolchain", "DEFAULT_TOOLCHAIN")
+    registry = _param_or_global("registry", registry, "DefaultNPMRegistry", "DEFAULT_NPM_REGISTRY")
+    please_nodejs_tool = _param_or_global("please_nodejs_tool", please_nodejs_tool, "Tool", "TOOL")
+    pnpm_tool = _param_or_global("pnpm_tool", pnpm_tool, "PNPMTool", "PNPM_TOOL")
 
     # npm packages can't have '*'s in them, so we can use that as a replacement
     # for the directory separator.
@@ -122,15 +143,24 @@ def nodejs_npm_package(
 def nodejs_package_json(
     name: str,
     deps: list = [],
+    visibility: list = [],
+    please_nodejs_tool: str = None,
 ):
-    please_nodejs_tool = CONFIG.NODEJS.TOOL
+    """ Build rule for generating a package.json from the given deps.
+    Args:
+        name: The name of the build rule.
+        deps: The dependencies to generate a package.json for.
+        visibility: The targets to make the package.json visible to.
+        please_nodejs_tool: The Please NodeJS tool to use. This defaults to 'Tool'.
+    """
+    please_nodejs_tool = _param_or_global("please_nodejs_tool", please_nodejs_tool, "Tool", "TOOL")
 
     return genrule(
         name = name,
         deps = deps,
         needs_transitive_deps = True,
         tools = [please_nodejs_tool],
-        outs = [f"{name}_package.json"],
+        outs = ["package.json"],
         cmd = f"""
         set -Eeuo pipefail
         "$(exe {please_nodejs_tool})" \\
@@ -138,15 +168,30 @@ def nodejs_package_json(
             packagejson \\
             --out="$OUTS"
         """,
+        visibility = visibility,
+        labels = ["codegen"],
     )
 
 def nodejs_node_modules(
     name: str,
     package_json: str,
-    toolchain: str,
     deps: list = [],
+    visibility: list = [],
+    toolchain: str = None,
+    pnpm_tool: str = None,
 ):
-    pnpm_tool = CONFIG.NODEJS.PNPM_TOOL
+    """ Build rule for generating a 'node_modules' directory.
+    Args:
+        name: The name of the build rule.
+        package_json: The 'package.json' file to use.
+        deps: The packages that are mentioned in the 'package.json' thus
+              required to generate this 'node_modules'.
+        visibility: The targets to make the package visible to.
+        toolchain: The toolchain to use to download the package. This defaults to 'DefaultToolchain'.
+        pnpm_tool: The 'pnpm' tool to use. This defaults to 'PNPMTool'.
+    """
+    pnpm_tool = _param_or_global("pnpm_tool", pnpm_tool, "PNPMTool", "PNPM_TOOL")
+    toolchain = _param_or_global("toolchain", toolchain, "DefaultToolchain", "DEFAULT_TOOLCHAIN")
 
     return genrule(
         name = name,
@@ -159,7 +204,7 @@ def nodejs_node_modules(
             toolchain,
             pnpm_tool,
         ],
-        outs = [name],
+        outs = ["node_modules/"],
         deps = deps,
         cmd = f"""
         set -Eeuo pipefail
@@ -171,93 +216,267 @@ def nodejs_node_modules(
 
         mv $SRCS_PACKAGE_JSON package.json
         "$pnpm" install --offline
-
-        mv node_modules $OUTS
         """,
+        visibility = visibility,
+        labels = ["codegen"],
     )
 
-def nodejs_esbuild_bundle(
+def nodejs_vercel_pkg_binaries(
     name: str,
-    srcs: list = [],
-    deps: list = [],
-    esbuild_args: list = [],
-    browser: bool = False,
-    browsers: list = ["chrome58","firefox57","safari11","edge16"],
-    toolchain: str,
+    version: str,
+    node_version: str,
+    extra_os_architectures: list = [],
+    visibility: list = [],
 ):
-    if browser:
-        browser_flag=",".join(browsers)
-        esbuild_args+=["--minify", "--sourcemap", f"--target={browser_flag}"]
+    """ Build rule for downloading vercel/pkg-fetch binaries to package NodeJS
+    binaries.
+    Args:
+        name: The name of the build rule.
+        version: The version of pkg-fetch to download. See https://github.com/vercel/pkg-fetch/releases.
+        node_version: The version of node the binary to download, e.g. v16.15.0.
+        extra_os_architectures: A list of extra OS architectures to download for this node version.
+        visibility: The targets to make the package visible to.
+    """
+    binaries = []
+    binaries += [nodejs_pkg_host_binary(node_version)]
+    for os_arch in extra_os_architectures:
+        os = os_arch.split("-")[0]
+        arch = os_arch.split("-")[1]
+        binaries += [nodejs_pkg_binary(node_version, os, False, arch)]
 
-    if not browser:
-        deps += [CONFIG.NODEJS.VERCEL_PKG_DEP]
+    binary_rules = []
+    for binary in binaries:
+        binary_rule=remote_file(
+            name = tag(name, binary),
+            url = f"https://github.com/vercel/pkg-fetch/releases/download/{version}/{binary}",
+        )
+        binary_rules += [binary_rule]
+
+    return genrule(
+        name = name,
+        srcs = binary_rules,
+        outs = [name],
+        cmd = f"""
+        set -Eeuo pipefail
+        mkdir -p "$OUTS/{version}"
+        for src in $SRCS; do
+            newName="$(basename "${{src//node-/fetched-}}")"
+            mv "$src" "$OUTS/{version}/$newName"
+        done
+        echo "{node_version}" | cut -f1 -d. | cut -f2 -dv > "$OUTS/.please_nodejs_node_version"
+        """,
+        visibility = visibility,
+    )
+
+def nodejs_esbuild_bundle_browser(
+    name: str,
+    entrypoints: list,
+    srcs: list = [],
+    public: list = [],
+    deps: list = [],
+    browsers: list = [],
+    esbuild_tool: str = None,
+    esbuild_args: list = [],
+    toolchain: str = None,
+):
+    """ Build rule to build a browser bundle via ESBuild.
+    Args:
+        name: The name of the build rule.
+        entrypoints: The source files to use as entrypoints for the bundle.
+        srcs: Additional source files to include in the bundle.
+        public: Static public files to include in the dist.
+        deps: The NPM packages that the srcs depend on.
+        browsers: A list of browser targets. See https://esbuild.github.io/api/#target
+        esbuild_tool: The tool to use as ESBuild. This defaults to 'ESBuildTool'.
+        esbuild_args: Additional args to pass to ESBuild.
+        toolchain: The NodeJS toolchain to use. This defaults to 'DefaultToolchain'.
+    """
+    toolchain = _param_or_global("toolchain", toolchain, "DefaultToolchain", "DEFAULT_TOOLCHAIN")
+    esbuild_tool = _param_or_global("esbuild_tool", esbuild_tool, "ESBuildTool", "ESBUILD_TOOL")
 
     package_json = nodejs_package_json(
         name = tag(name, "package_json"),
         deps = deps,
     )
 
-    node_modules=nodejs_node_modules(
+    node_modules = nodejs_node_modules(
         name = tag(name, "node_modules"),
         package_json = package_json,
         deps = deps,
         toolchain = toolchain,
     )
 
-    # Build w/ esbuild.
+    browser_flag=",".join(browsers)
+    esbuild_args+=["--minify", "--sourcemap", f"--target={browser_flag}"]
     esbuild_args_cmd=" ".join(esbuild_args)
-    extra_cmds=""
-    if not browser:
-        genrule(
-            name = name,
-            srcs = {
-                "package_json": [package_json],
-                "node_modules": [node_modules],
-                "srcs": srcs,
-                "pkg_cache": ["//third_party/nodejs:node-v18.5.0-linux-x64"],
-            },
-            tools = [
-                "//third_party/nodejs:esbuild",
-                f"{toolchain}",
-            ],
-            outs = [name],
-            cmd = f"""
-set -Eeuo pipefail
-mv $SRCS_PACKAGE_JSON package.json
-mv $SRCS_NODE_MODULES node_modules
-$(exe //third_party/nodejs:esbuild) \\
-    --bundle {esbuild_args_cmd} \\
-    --outfile=out.js \\
-    $SRCS_SRCS
 
-source $(location {toolchain})/venv.sh
-mkdir -p ~/.pkg-cache/v3.4/
-mv $SRCS_PKG_CACHE ~/.pkg-cache/v3.4/fetched-v18.5.0-linux-x64
-npx pkg -t node18-linux-x64 out.js
-mv out $OUTS
-            """,
-            binary = True,
-            sandbox = True,
-            # TODO: pre-populating cache for pkg without hardcoding in a separate build rule/build def.
-        )
-    else:
-        genrule(
-            name = name,
-            sandbox = True,
-            srcs = {
-                "package_json": [package_json],
-                "node_modules": [node_modules],
-                "srcs": srcs,
-            },
-            tools = ["//third_party/nodejs:esbuild"],
-            outs = [f"{name}.js"],
-            cmd = f"""
-set -Eeuo pipefail
-mv $SRCS_PACKAGE_JSON package.json
-mv $SRCS_NODE_MODULES node_modules
-$TOOLS \\
-    --bundle {esbuild_args_cmd} \\
-    --outfile=$OUTS \\
-    $SRCS_SRCS
-            """,
-        )
+    entrypoints_cmd = " ".join(entrypoints)
+
+    bundle = genrule(
+        name = name,
+        sandbox = True,
+        srcs = {
+            "package_json": [package_json],
+            "node_modules": [node_modules],
+            "srcs": srcs,
+            "entrypoints": entrypoints,
+        },
+        tools = [esbuild_tool],
+        outs = [f"{name}.js"],
+        cmd = f"""
+        set -Eeuo pipefail
+        cd $PKG
+        $TOOLS \\
+            --bundle {esbuild_args_cmd} \\
+            --outfile=$HOME/$OUTS \\
+            {entrypoints_cmd}
+        """,
+    )
+
+    # TODO: create static site package with all static files etc.
+    # Currently this just copies everything public/bundled into a flattened
+    # directory.
+    dist = genrule (
+        name = f"{name}_dist",
+        sandbox = True,
+        srcs = {
+            "bundle": [bundle],
+            "public": public,
+        },
+        outs = ["dist"],
+        cmd = """
+        mkdir -p $OUTS
+        for src in $SRCS_PUBLIC; do
+            cp "$src" $OUTS/
+        done
+
+        cp "$SRCS_BUNDLE" $OUTS/
+        """
+    )
+
+    # TODO: Use caddy to serve the static site package.
+
+    return bundle
+
+def nodejs_esbuild_bundle_binary(
+    name: str,
+    srcs: list = [],
+    deps: list = [],
+    esbuild_tool: str = None,
+    esbuild_args: list = [],
+    vercel_pkg_binaries: str = None,
+    vercel_pkg_dep: str = None,
+    toolchain: str = None,
+):
+    """ Build rule to build a binary bundle via ESBuild and vercel/pkg.
+    Args:
+        name: The name of the build rule.
+        srcs: The source files to include in the bundle.
+        deps: The NPM packages that the srcs depend on.
+        esbuild_tool: The tool to use as ESBuild. This defaults to 'ESBuildTool'.
+        esbuild_args: Additional args to pass to ESBuild.
+        vercel_pkg_binaries: The target that contains the vercel/pkg binaries to use. This defaults to 'VercelPkgBinaries'.
+        vercel_pkg_dep: The target that contains the vercel/pkg package to use. This defaults to 'VercelPkgDep'.
+        toolchain: The NodeJS toolchain to use. This defaults to 'DefaultToolchain'.
+    """
+    toolchain = _param_or_global("toolchain", toolchain, "DefaultToolchain", "DEFAULT_TOOLCHAIN")
+    esbuild_tool = _param_or_global("esbuild_tool", esbuild_tool, "ESBuildTool", "ESBUILD_TOOL")
+    vercel_pkg_binaries = _param_or_global("vercel_pkg_binaries", vercel_pkg_binaries, "VercelPkgBinaries", "VERCEL_PKG_BINARIES")
+    vercel_pkg_dep = _param_or_global("vercel_pkg_dep", vercel_pkg_dep, "VercelPkgDep", "VERCEL_PKG_DEP")
+
+    if not vercel_pkg_dep and not CONFIG.NODEJS.VERCEL_PKG_DEP:
+        fail("no 'vercel_pkg_dep' or 'nodejs.VercelPkgDep' specified.")
+    vercel_pkg_dep = vercel_pkg_dep or CONFIG.NODEJS.VERCEL_PKG_DEP
+
+    deps += [vercel_pkg_dep]
+
+    package_json = nodejs_package_json(
+        name = tag(name, "package_json"),
+        deps = deps,
+    )
+
+    node_modules = nodejs_node_modules(
+        name = tag(name, "node_modules"),
+        package_json = package_json,
+        deps = deps,
+        toolchain = toolchain,
+    )
+
+    pkg_os=nodejs_pkg_os(CONFIG.OS, False)
+    pkg_arch=nodejs_pkg_arch(CONFIG.ARCH)
+
+    esbuild_args_cmd=" ".join(esbuild_args)
+
+    genrule(
+        name = name,
+        srcs = {
+            "package_json": [package_json],
+            "node_modules": [node_modules],
+            "srcs": srcs,
+            "pkg_cache": [vercel_pkg_binaries],
+        },
+        tools = [
+            esbuild_tool,
+            toolchain,
+        ],
+        outs = [name],
+        cmd = f"""
+        set -Eeuo pipefail
+        mv $SRCS_PACKAGE_JSON package.json
+        mv $SRCS_NODE_MODULES node_modules
+        $(exe //third_party/nodejs:esbuild) \\
+            --bundle {esbuild_args_cmd} \\
+            --outfile=out.js \\
+            $SRCS_SRCS
+
+        mv $SRCS_PKG_CACHE ~/.pkg-cache
+        source $(location {toolchain})/venv.sh
+        node_version="$(<$HOME/.pkg-cache/.please_nodejs_node_version)"
+        ./node_modules/.bin/pkg -t node${{node_version}}-{pkg_os}-{pkg_arch} out.js
+        mv out $OUTS
+        """,
+        binary = True,
+        sandbox = True,
+    )
+
+def nodejs_pkg_os(go_os: str, cgo_enabled: bool):
+    # if go_os == "linux" and not cgo_enabled:
+    #     return "linuxstatic"
+
+    return go_os
+
+def nodejs_pkg_arch(go_arch: str):
+    if go_arch == "amd64":
+        return "x64"
+
+    return go_arch
+
+def nodejs_pkg_binary(
+    version: str,
+    go_os: str,
+    cgo_enabled: bool = False,
+    go_arch: str,
+):
+    pkg_os = nodejs_pkg_os(go_os, cgo_enabled)
+    pkg_arch = nodejs_pkg_arch(go_arch)
+
+    return f"node-{version}-{pkg_os}-{pkg_arch}"
+
+def nodejs_pkg_host_binary(version: str):
+    return nodejs_pkg_binary(
+        version,
+        CONFIG.OS,
+        False,
+        CONFIG.ARCH,
+    )
+
+def _param_or_global(
+    paramName: str,
+    paramVal: str,
+    globalName: str,
+    globalKey: str,
+):
+    if not paramVal and not CONFIG.NODEJS[globalKey]:
+        fail(f"no '{paramName}' or 'nodejs.{globalName}' specified.")
+
+    return paramVal or CONFIG.NODEJS[globalKey]

@@ -10,8 +10,10 @@ nodejs_esbuild_toolchain(
     version = "0.15.16",
 )
 
-remote_file(
-    name = "node-v18.5.0-linux-x64",
-    url = "https://github.com/vercel/pkg-fetch/releases/download/v3.4/node-v18.5.0-linux-x64",
+nodejs_vercel_pkg_binaries(
+    name = "pkg_binaries",
+    extra_os_architectures = ["macos-amd64"],
+    node_version = "v18.5.0",
+    version = "v3.4",
     visibility = ["PUBLIC"],
 )

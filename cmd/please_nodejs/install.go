@@ -53,12 +53,6 @@ BUILD files. e.g.:
 			},
 		},
 		Action: func(cCtx *cli.Context) error {
-			if cCtx.NArg() != 1 {
-				return fmt.Errorf("invalid number of arguments passed: %d", cCtx.NArg())
-			}
-			requestedNPMModule := cCtx.Args().First()
-			log.Debug().Msgf("module: %s", requestedNPMModule)
-
 			npmClient, err := npm.NewClient(cCtx.String("registry"))
 			if err != nil {
 				return fmt.Errorf("could not initialise npm client: %w", err)
@@ -73,9 +67,14 @@ BUILD files. e.g.:
 				PackagePrefix: cCtx.String("pkg_prefix"),
 			}, npmClient)
 
-			npmRules, err := npmPackageResolver.ResolveNPMPackages(cCtx.Context, requestedNPMModule)
-			if err != nil {
-				return err
+			npmRules := []*please.Rule{}
+			for _, requestedPkg := range cCtx.Args().Slice() {
+				log.Info().Msgf("resolving npm packages for: %s", requestedPkg)
+				newRules, err := npmPackageResolver.ResolveNPMPackages(cCtx.Context, requestedPkg)
+				if err != nil {
+					return err
+				}
+				npmRules = append(npmRules, newRules...)
 			}
 
 			bfm := please.NewBuildFileManager()

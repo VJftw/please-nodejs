@@ -11,6 +11,10 @@ version = 16.25.1
 [featureflags]
 ExcludeGoRules = true
 
+[Build]
+; This links package.json and node_modules to the repo so that IDEs give us type hinting.
+LinkGeneratedSources = true
+
 ; Define the Plugin configuration options.
 [PluginDefinition]
 Name = nodejs
@@ -40,6 +44,12 @@ Optional = true
 Help = "Sets the given Please target as the Vercel pkg npm package to use to build JS binaries."
 DefaultValue = "//third_party/nodejs/pkg:pkg_5.8.0"
 
+[PluginConfig "vercel_pkg_binaries"]
+ConfigKey = VercelPkgBinaries
+Optional = true
+Help = "Sets the given Please target as the Vercel pkg cache to build JS binaries."
+DefaultValue = "//third_party/nodejs:pkg_binaries"
+
 [PluginConfig "default_npm_registry"]
 ConfigKey = DefaultNPMRegistry
 Optional = true
@@ -47,10 +57,16 @@ Help = "Sets the given address as the default NPM registry."
 DefaultValue = "registry.npmjs.org"
 
 [PluginConfig "pnpm_tool"]
-ConfigKey = PnpmTool
+ConfigKey = PNPMTool
 Optional = true
 Help = "Sets the given target to use as 'pnpm'."
 DefaultValue = "//third_party/binary:pnpm"
+
+[PluginConfig "esbuild_tool"]
+ConfigKey = ESBuildTool
+Optional = true
+Help = "Sets the given target to use as 'esbuild'."
+DefaultValue = "//third_party/nodejs:esbuild"
 
 ; Use the plugin in this repository for tests.
 [Plugin "nodejs"]

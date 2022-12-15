@@ -1,16 +1,6 @@
 subinclude("///nodejs//build/defs:nodejs")
 
 nodejs_npm_package(
-    name = "react_18.2.0",
-    package_name = "react",
-    license = "MIT",
-    registry = "registry.npmjs.org",
-    version = "18.2.0",
-    visibility = ["PUBLIC"],
-    deps = ["//test/esbuild/react-dom/third_party/nodejs:loose-envify_1.4.0"],
-)
-
-nodejs_npm_package(
     name = "react-dom_18.2.0",
     package_name = "react-dom",
     license = "MIT",
@@ -18,8 +8,8 @@ nodejs_npm_package(
     version = "18.2.0",
     visibility = ["PUBLIC"],
     deps = [
-        "//test/esbuild/react-dom/third_party/nodejs:loose-envify_1.4.0",
-        "//test/esbuild/react-dom/third_party/nodejs:scheduler_0.23.0",
+        ":loose-envify_1.4.0",
+        ":scheduler_0.23.0",
     ],
 )
 
@@ -30,7 +20,17 @@ nodejs_npm_package(
     registry = "registry.npmjs.org",
     version = "0.23.0",
     visibility = ["PUBLIC"],
-    deps = ["//test/esbuild/react-dom/third_party/nodejs:loose-envify_1.4.0"],
+    deps = [":loose-envify_1.4.0"],
+)
+
+nodejs_npm_package(
+    name = "react_18.2.0",
+    package_name = "react",
+    license = "MIT",
+    registry = "registry.npmjs.org",
+    version = "18.2.0",
+    visibility = ["PUBLIC"],
+    deps = [":loose-envify_1.4.0"],
 )
 
 nodejs_npm_package(
@@ -40,7 +40,7 @@ nodejs_npm_package(
     registry = "registry.npmjs.org",
     version = "1.4.0",
     visibility = ["PUBLIC"],
-    deps = ["//test/esbuild/react-dom/third_party/nodejs:js-tokens_4.0.0"],
+    deps = [":js-tokens_4.0.0"],
 )
 
 nodejs_npm_package(

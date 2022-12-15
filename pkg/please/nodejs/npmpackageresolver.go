@@ -74,13 +74,18 @@ func (r *NPMPackageResolver) newRuleFromInstallableNPMPackage(
 	deps := []string{}
 	for _, resolvedDep := range npmPkg.ResolvedDepVersions {
 		depRef := r.opts.npmPackageTargetFn(resolvedDep)
-		trgt, err := please.NewTargetFromReference(depRef)
+		depTarget, err := please.NewTargetFromReference(depRef)
 		if err != nil {
 			return nil, err
 		}
-		trgt.PrefixPkg(r.opts.PackagePrefix)
-		// TODO: canonicalise deps as they might be in the same pkg.
-		deps = append(deps, trgt.String())
+		depTarget.PrefixPkg(r.opts.PackagePrefix)
+
+		if target.Pkg == depTarget.Pkg {
+			// short-hand deps that are in the same pkg.
+			deps = append(deps, ":"+depTarget.Name)
+		} else {
+			deps = append(deps, depTarget.String())
+		}
 	}
 
 	rule, err := please.NewRule(
