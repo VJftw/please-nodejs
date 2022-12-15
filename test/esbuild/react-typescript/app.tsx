@@ -14,6 +14,6 @@ const App = (props: { message: string }) => {
 };
 
 ReactDOM.render(
-    <App message="Hello World! Simple Counter App built on ESBuild + React + Typescript"/>,
+    <App message="Hello World! A Simple Counter App built on ESBuild + React + Typescript"/>,
     document.getElementById('root'),
 );

@@ -26,11 +26,10 @@ jobs:
       - name: Build
         run: |-
           ./pleasew build -p -v=2 \
-            --arch linux_amd64 \
-            //cmd/please_nodejs:please_nodejs
+            //cmd/please_nodejs/dist:all
 
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
-          files: plz-out/bin/cmd/please_nodejs/please_nodejs
+          files: plz-out/gen/cmd/please_nodejs/dist/*
           tag_name: ${{ github.event.inputs.version }}

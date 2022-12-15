@@ -278,6 +278,8 @@ def nodejs_esbuild_bundle_browser(
     esbuild_tool: str = None,
     esbuild_args: list = [],
     toolchain: str = None,
+    caddy_tool: str = None,
+    visibility: list = [],
 ):
     """ Build rule to build a browser bundle via ESBuild.
     Args:
@@ -290,9 +292,12 @@ def nodejs_esbuild_bundle_browser(
         esbuild_tool: The tool to use as ESBuild. This defaults to 'ESBuildTool'.
         esbuild_args: Additional args to pass to ESBuild.
         toolchain: The NodeJS toolchain to use. This defaults to 'DefaultToolchain'.
+        caddy_tool: The Caddy tool to use. This defaults to 'CaddyTool'.
+        visibility: The targets to make the outputs visible to.
     """
     toolchain = _param_or_global("toolchain", toolchain, "DefaultToolchain", "DEFAULT_TOOLCHAIN")
     esbuild_tool = _param_or_global("esbuild_tool", esbuild_tool, "ESBuildTool", "ESBUILD_TOOL")
+    caddy_tool = _param_or_global("caddy_tool", caddy_tool, "CaddyTool", "CADDY_TOOL")
 
     package_json = nodejs_package_json(
         name = tag(name, "package_json"),
@@ -331,11 +336,9 @@ def nodejs_esbuild_bundle_browser(
             --outfile=$HOME/$OUTS \\
             {entrypoints_cmd}
         """,
+        visibility = visibility,
     )
 
-    # TODO: create static site package with all static files etc.
-    # Currently this just copies everything public/bundled into a flattened
-    # directory.
     dist = genrule (
         name = f"{name}_dist",
         sandbox = True,
@@ -345,16 +348,45 @@ def nodejs_esbuild_bundle_browser(
         },
         outs = ["dist"],
         cmd = """
+        set -Eeuo pipefail
         mkdir -p $OUTS
         for src in $SRCS_PUBLIC; do
-            cp "$src" $OUTS/
+            relpath="$(realpath --relative-to="$PKG" "$src")"
+            reldir="$(dirname "$relpath")"
+            mkdir -p "$OUTS/$reldir"
+            cp "$src" "$OUTS/$relpath"
+            echo "copied $src to $OUTS/$relpath"
         done
 
-        cp "$SRCS_BUNDLE" $OUTS/
-        """
+        # cache bust the bundle
+        bundle_hash="$(sha256sum "$SRCS_BUNDLE" | cut -c-7)"
+        new_bundle_name="$(basename "${SRCS_BUNDLE%.*}").$bundle_hash.js"
+        mv "$SRCS_BUNDLE" "$OUTS/$new_bundle_name"
+        old_bundle_name="$(basename "$SRCS_BUNDLE")"
+        set -x
+        find "$OUTS" -type f \\
+            | xargs sed -i "s#$old_bundle_name#$new_bundle_name#g"
+        """,
+        visibility = visibility,
     )
 
-    # TODO: Use caddy to serve the static site package.
+    sh_cmd(
+        name = f"{name}_serve",
+        data = [
+            dist,
+            caddy_tool,
+        ],
+        shell = "/usr/bin/env bash",
+        cmd = f"""
+        set -Eeuo pipefail
+        set -x
+        $(out_exe {caddy_tool}) \\
+            file-server \\
+            --access-log \\
+            --listen :8080 \\
+            --root $(out_location {dist})
+        """
+    )
 
     return bundle
 
@@ -480,3 +512,21 @@ def _param_or_global(
         fail(f"no '{paramName}' or 'nodejs.{globalName}' specified.")
 
     return paramVal or CONFIG.NODEJS[globalKey]
+
+def _validate_config():
+    default_nodejs_tools = [
+        "///nodejs//third_party/binary:please_nodejs",
+        "//third_party/binary:please_nodejs",
+    ]
+    if CONFIG.NODEJS.TOOL not in default_nodejs_tools and CONFIG.NODEJS.TOOL_VERSION:
+        fail(f"nodejs.ToolVersion should only be set when nodejs.Tool is the default value (currently: '{CONFIG.NODEJS.TOOL}').")
+
+def _nodejs_tool():
+    _validate_config()
+    if CONFIG.NODEJS.TOOL_VERSION:
+        remote_file(
+            name = "please_nodejs",
+            url = f"https://github.com/VJftw/please-nodejs/releases/download/{CONFIG.NODEJS.TOOL_VERSION}/please_nodejs_{CONFIG.NODEJS.TOOL_VERSION}_{CONFIG.OS}_{CONFIG.ARCH}",
+            visibility = ["PUBLIC"],
+            binary = True,
+        )

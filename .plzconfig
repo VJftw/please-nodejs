@@ -11,6 +11,9 @@ version = 16.25.1
 [featureflags]
 ExcludeGoRules = true
 
+[Parse]
+PreloadSubincludes = ///go//build_defs:go
+
 [Build]
 ; This links package.json and node_modules to the repo so that IDEs give us type hinting.
 LinkGeneratedSources = true
@@ -67,6 +70,12 @@ ConfigKey = ESBuildTool
 Optional = true
 Help = "Sets the given target to use as 'esbuild'."
 DefaultValue = "//third_party/nodejs:esbuild"
+
+[PluginConfig "caddy_tool"]
+ConfigKey = CaddyTool
+Optional = true
+Help = "Sets the given target to use as 'caddy'."
+DefaultValue = "//third_party/binary:caddy"
 
 ; Use the plugin in this repository for tests.
 [Plugin "nodejs"]

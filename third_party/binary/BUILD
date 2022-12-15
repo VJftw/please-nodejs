@@ -24,4 +24,5 @@ remote_file(
     exported_files = ["caddy"],
     extract = True,
     url = f"https://github.com/caddyserver/caddy/releases/download/v2.6.2/caddy_2.6.2_{CONFIG.OS}_{CONFIG.ARCH}.tar.gz",
+    visibility = ["PUBLIC"],
 )

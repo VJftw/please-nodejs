@@ -39,6 +39,7 @@ $ ./pleasew run ///nodejs//third_party/binary:please_nodejs -- install --pkg_pre
 ```
 
 I highly recommend creating an alias in your `.plzconfig` for this like so:
+
 ```ini
 [alias "npm-install"]
 desc = Runs please_nodejs install to install new dependencies into the repo
@@ -48,7 +49,27 @@ cmd = run ///nodejs//third_party/binary:please_nodejs -- -s
 
 ## `nodejs_esbuild_bundle_browser`
 
-This build rule allows you to build a browser bundle via ESBuild. For example, a React web-application may be built via this rule. See `test/esbuild/react-typescript` for an example.
+This build rule allows you to build a browser bundle via ESBuild. For example, a React web-application may be built via this rule.
+
+It generates the following subrules:
+
+* `_dist`: A "dist" suitable for uploading to a static hosting site.
+* `_serve`: A local server running the `_dist` output powered by [Caddy](https://caddyserver.com/). This may be watched via `./pleasew watch --run` for automatic rebuilding of changes. **Note**: You will need to refresh the webpage to see those changes.
+
+### Examples
+
+#### `test/esbuild/react-typescript`: A Simple React Counter application
+
+```bash
+$ ./pleasew watch --run //test/esbuild/react-typescript:react-typescript_serve
+```
+
+#### `test/esbuild/react-typescript-tailwindcss`: A Simple React Counter application with TailwindCSS styling
+
+```bash
+$ ./pleasew watch --run //test/esbuild/react-typescript-tailwindcss:react-typescript-tailwind_serve
+```
+
 
 ## `nodejs_esbuild_bundle_binary`
 

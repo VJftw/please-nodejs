@@ -1,17 +1,16 @@
 subinclude("//build/defs:nodejs")
 
 nodejs_esbuild_bundle_browser(
-    name = "browser",
+    name = "react-typescript",
     srcs = [
         "tsconfig.json",
     ],
-    browsers = [],
     entrypoints = [
         "app.tsx",
     ],
     public = [
         "index.html",
-    ],
+    ] + glob("assets/**"),
     deps = [
         "//test/esbuild/react-typescript/third_party/nodejs:@types_react-dom_18.0.9",
         "//test/esbuild/react-typescript/third_party/nodejs:@types_react_18.0.26",
