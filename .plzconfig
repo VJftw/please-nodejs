@@ -1,0 +1,86 @@
+; Please config file
+; Leaving this file as is is enough to use plz to build your project.
+; Please will stay on whatever version you currently have until you run
+; 'plz update', when it will download the latest available version.
+;
+; Or you can uncomment the following to pin everyone to a particular version;
+; when you change it all users will automatically get updated.
+[please]
+version = 16.25.1
+
+[featureflags]
+ExcludeGoRules = true
+
+[Parse]
+PreloadSubincludes = ///go//build_defs:go
+
+[Build]
+; This links package.json and node_modules to the repo so that IDEs give us type hinting.
+LinkGeneratedSources = true
+
+; Define the Plugin configuration options.
+[PluginDefinition]
+Name = nodejs
+Description = "A Please plugin for working with NodeJS."
+BuildDefsDir = "build/defs"
+
+[PluginConfig "default_toolchain"]
+ConfigKey = DefaultToolchain
+Optional = true
+Help = "Sets the given Please target as the Default NodeJS Toolchain to use in Please."
+
+[PluginConfig "tool"]
+ConfigKey = Tool
+DefaultValue = "//third_party/binary:please_nodejs"
+Inherit = true
+Help = "Sets the given Please target as the Tool which the NodeJS build_defs use to build NodeJS source code. Leaving this as the default and setting ToolVersion will utilise pre-built binaries from GitHub Releases."
+
+[PluginConfig "tool_version"]
+ConfigKey = ToolVersion
+Optional = true
+Inherit = true
+Help = "In conjunction with the default value for Tool, this sets the version of the Tool which should be downloaded from GitHub Releases."
+
+[PluginConfig "vercel_pkg_dep"]
+ConfigKey = VercelPkgDep
+Optional = true
+Help = "Sets the given Please target as the Vercel pkg npm package to use to build JS binaries."
+DefaultValue = "//third_party/nodejs/pkg:pkg_5.8.0"
+
+[PluginConfig "vercel_pkg_binaries"]
+ConfigKey = VercelPkgBinaries
+Optional = true
+Help = "Sets the given Please target as the Vercel pkg cache to build JS binaries."
+DefaultValue = "//third_party/nodejs:pkg_binaries"
+
+[PluginConfig "default_npm_registry"]
+ConfigKey = DefaultNPMRegistry
+Optional = true
+Help = "Sets the given address as the default NPM registry."
+DefaultValue = "registry.npmjs.org"
+
+[PluginConfig "pnpm_tool"]
+ConfigKey = PNPMTool
+Optional = true
+Help = "Sets the given target to use as 'pnpm'."
+DefaultValue = "//third_party/binary:pnpm"
+
+[PluginConfig "caddy_tool"]
+ConfigKey = CaddyTool
+Optional = true
+Help = "Sets the given target to use as 'caddy'."
+DefaultValue = "//third_party/binary:caddy"
+
+; Use the plugin in this repository for tests.
+[Plugin "nodejs"]
+Tool = //cmd/please_nodejs
+DefaultToolchain = //third_party/nodejs:toolchain
+
+[Plugin "go"]
+Target = //third_party/plugins:go
+gotool = //third_party/go:toolchain|go
+importpath = github.com/VJftw/please-nodejs
+
+[alias "go-get"]
+desc = Runs the go deps tool to install new dependencies into the repo
+cmd = run //third_party/binary:go-deps -- -s -w

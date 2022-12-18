@@ -1,0 +1,510 @@
+"""Build rules for working with NodeJS (https://nodejs.org/)
+"""
+
+def nodejs_toolchain(
+    name: str,
+    version: str,
+    visibility: list = ["PUBLIC"],
+):
+    """Build rule for obtaining a version of the NodeJS toolchain.
+    Args:
+        name: The name of the build rule.
+        version: The version of NodeJS to download.
+        visibility: The targets to make the toolchain visibile to.
+    """
+    arch = ""
+    if CONFIG.ARCH == "amd64":
+        arch = "x64"
+    else:
+        fail(f"Unsupported architecture: {CONFIG.ARCH}")
+
+    download=remote_file(
+        name = f"{name}#download",
+        url = f"https://nodejs.org/dist/v{version}/node-v{version}-{CONFIG.OS}-{arch}.tar.xz",
+        extract = True,
+        visibility = visibility,
+    )
+
+    venv=genrule(
+        name = name,
+        srcs = [download],
+        outs = [name],
+        cmd = """
+        mv $SRCS $OUTS
+
+cat <<EOF > $OUTS/venv.sh
+DIR="\\\$( cd "\\\$( dirname "\\\${BASH_SOURCE[0]}" )" && pwd )"
+export PATH="\\\$DIR/bin:$PATH"
+echo "added \\\$DIR/bin to the path"
+EOF
+        source $OUTS/venv.sh
+        """,
+        visibility = visibility,
+    )
+
+def nodejs_npm_package(
+    name: str,
+    package_name: str = None,
+    version: str,
+    deps: list = [],
+    license: str = None,
+    visibility = [],
+    registry: str = None,
+    toolchain: str = None,
+    please_nodejs_tool: str = None,
+    pnpm_tool: str = None,
+):
+    """ Build rule for obtaining a remote NPM package from a registry.
+    Args:
+        name: The name of the build rule.
+        package_name: The name of the package to download if it is different
+                      from the name.
+        version: The version of the package to download.
+        deps: The other packages that this package depends on.
+        license: The license that the package has.
+        visibility: The targets to make the package visible to.
+        registry: The registry to download the package from. This defaults to 'DefaultNPMRegistry'.
+        toolchain: The toolchain to use to download the package. This defaults to 'DefaultToolchain'.
+        please_nodejs_tool: The Please NodeJS tool to use. This defaults to 'Tool'.
+        pnpm_tool: The 'pnpm' tool to use. This defaults to 'PNPMTool'.
+    """
+    if not package_name:
+        package_name = name
+
+    toolchain = _param_or_global("toolchain", toolchain, "DefaultToolchain", "DEFAULT_TOOLCHAIN")
+    registry = _param_or_global("registry", registry, "DefaultNPMRegistry", "DEFAULT_NPM_REGISTRY")
+    please_nodejs_tool = _param_or_global("please_nodejs_tool", please_nodejs_tool, "Tool", "TOOL")
+    pnpm_tool = _param_or_global("pnpm_tool", pnpm_tool, "PNPMTool", "PNPM_TOOL")
+
+    # npm packages can't have '*'s in them, so we can use that as a replacement
+    # for the directory separator.
+    safe_package_name=package_name.replace("/", "*")
+
+    genrule(
+        name = name,
+        tools = [
+            please_nodejs_tool,
+            toolchain,
+            pnpm_tool,
+        ],
+        deps = deps,
+        cmd = f"""
+        set -Eeuo pipefail
+        source $(location {toolchain})/venv.sh
+        pnpm="$(exe //third_party/binary:pnpm)"
+
+        "$pnpm" store add {package_name}@{version}
+
+        # verify that dependencies are available
+        "$(exe {please_nodejs_tool})" \\
+            --log_format=console \\
+            npmpackagedeps \\
+            --registry="{registry}" \\
+            --name="{package_name}" \\
+            --version="{version}"
+
+        safe_pkg_name="$(echo "{package_name}" | sed 's#/#_#g')"
+        tar -czf $safe_pkg_name-{version}.tgz .local .cache
+        mv $safe_pkg_name-{version}.tgz $OUTS
+        """,
+        outs = [f"{safe_package_name}@{version}.tgz"],
+        visibility = visibility,
+        exported_deps = deps,
+    )
+
+def nodejs_package_json(
+    name: str,
+    deps: list = [],
+    visibility: list = [],
+    please_nodejs_tool: str = None,
+):
+    """ Build rule for generating a package.json from the given deps.
+    Args:
+        name: The name of the build rule.
+        deps: The dependencies to generate a package.json for.
+        visibility: The targets to make the package.json visible to.
+        please_nodejs_tool: The Please NodeJS tool to use. This defaults to 'Tool'.
+    """
+    please_nodejs_tool = _param_or_global("please_nodejs_tool", please_nodejs_tool, "Tool", "TOOL")
+
+    return genrule(
+        name = name,
+        deps = deps,
+        needs_transitive_deps = True,
+        tools = [please_nodejs_tool],
+        outs = ["package.json"],
+        cmd = f"""
+        set -Eeuo pipefail
+        "$(exe {please_nodejs_tool})" \\
+            --log_format=console \\
+            packagejson \\
+            --out="$OUTS"
+        """,
+        visibility = visibility,
+        labels = ["codegen"],
+    )
+
+def nodejs_node_modules(
+    name: str,
+    package_json: str,
+    deps: list = [],
+    visibility: list = [],
+    toolchain: str = None,
+    pnpm_tool: str = None,
+):
+    """ Build rule for generating a 'node_modules' directory.
+    Args:
+        name: The name of the build rule.
+        package_json: The 'package.json' file to use.
+        deps: The packages that are mentioned in the 'package.json' thus
+              required to generate this 'node_modules'.
+        visibility: The targets to make the package visible to.
+        toolchain: The toolchain to use to download the package. This defaults to 'DefaultToolchain'.
+        pnpm_tool: The 'pnpm' tool to use. This defaults to 'PNPMTool'.
+    """
+    pnpm_tool = _param_or_global("pnpm_tool", pnpm_tool, "PNPMTool", "PNPM_TOOL")
+    toolchain = _param_or_global("toolchain", toolchain, "DefaultToolchain", "DEFAULT_TOOLCHAIN")
+
+    return genrule(
+        name = name,
+        srcs = {
+            "package_json": [package_json],
+        },
+        needs_transitive_deps = True,
+        sandbox = True,
+        tools = [
+            toolchain,
+            pnpm_tool,
+        ],
+        outs = ["node_modules/"],
+        deps = deps,
+        cmd = f"""
+        set -Eeuo pipefail
+
+        source $(location {toolchain})/venv.sh
+        pnpm="$(exe {pnpm_tool})"
+
+        find . -name '*.tgz' -exec tar -xzf {{}} \;
+
+        mv $SRCS_PACKAGE_JSON package.json
+        "$pnpm" install --offline
+        """,
+        visibility = visibility,
+        labels = ["codegen"],
+    )
+
+def nodejs_vercel_pkg_binaries(
+    name: str,
+    version: str,
+    node_version: str,
+    extra_os_architectures: list = [],
+    visibility: list = [],
+):
+    """ Build rule for downloading vercel/pkg-fetch binaries to package NodeJS
+    binaries.
+    Args:
+        name: The name of the build rule.
+        version: The version of pkg-fetch to download. See https://github.com/vercel/pkg-fetch/releases.
+        node_version: The version of node the binary to download, e.g. v16.15.0.
+        extra_os_architectures: A list of extra OS architectures to download for this node version.
+        visibility: The targets to make the package visible to.
+    """
+    binaries = []
+    binaries += [nodejs_pkg_host_binary(node_version)]
+    for os_arch in extra_os_architectures:
+        os = os_arch.split("-")[0]
+        arch = os_arch.split("-")[1]
+        binaries += [nodejs_pkg_binary(node_version, os, False, arch)]
+
+    binary_rules = []
+    for binary in binaries:
+        binary_rule=remote_file(
+            name = tag(name, binary),
+            url = f"https://github.com/vercel/pkg-fetch/releases/download/{version}/{binary}",
+        )
+        binary_rules += [binary_rule]
+
+    return genrule(
+        name = name,
+        srcs = binary_rules,
+        outs = [name],
+        cmd = f"""
+        set -Eeuo pipefail
+        mkdir -p "$OUTS/{version}"
+        for src in $SRCS; do
+            newName="$(basename "${{src//node-/fetched-}}")"
+            mv "$src" "$OUTS/{version}/$newName"
+        done
+        echo "{node_version}" | cut -f1 -d. | cut -f2 -dv > "$OUTS/.please_nodejs_node_version"
+        """,
+        visibility = visibility,
+    )
+
+def nodejs_bundle_browser(
+    name: str,
+    srcs: list = [],
+    public: list = [],
+    deps: list = [],
+    build_cmd: str,
+    toolchain: str = None,
+    caddy_tool: str = None,
+    visibility: list = [],
+):
+    """ Build rule to build a browser bundle via the given `build_cmd`.
+    Args:
+        name: The name of the build rule.
+        entrypoint: The source file to use as the entrypoint for the bundle.
+        srcs: Additional source files to include in the bundle.
+        public: Static public files to include in the dist.
+        deps: The NPM packages that the srcs depend on.
+        build_cmd: The command to use to build the given sources. This command
+                   should output the build js file to `$OUT`.
+        toolchain: The NodeJS toolchain to use. This defaults to 'DefaultToolchain'.
+        caddy_tool: The Caddy tool to use. This defaults to 'CaddyTool'.
+        visibility: The targets to make the outputs visible to.
+    """
+    toolchain = _param_or_global("toolchain", toolchain, "DefaultToolchain", "DEFAULT_TOOLCHAIN")
+    caddy_tool = _param_or_global("caddy_tool", caddy_tool, "CaddyTool", "CADDY_TOOL")
+
+    package_json = nodejs_package_json(
+        name = tag(name, "package_json"),
+        deps = deps,
+    )
+
+    node_modules = nodejs_node_modules(
+        name = tag(name, "node_modules"),
+        package_json = package_json,
+        deps = deps,
+        toolchain = toolchain,
+    )
+
+    bundle = genrule(
+        name = name,
+        sandbox = True,
+        srcs = {
+            "package_json": [package_json],
+            "node_modules": [node_modules],
+            "srcs": srcs,
+        },
+        output_dirs = [f"{name}_out"],
+        cmd = f"""
+        set -Eeuo pipefail
+        export PATH="$HOME/$(location {node_modules})/.bin:$PATH"
+        OUT="$HOME/{name}_out"
+        cd $PKG
+        {build_cmd}
+        """,
+        visibility = visibility,
+    )
+
+    dist = genrule (
+        name = f"{name}_dist",
+        sandbox = True,
+        srcs = {
+            "bundle": [bundle],
+            "public": public,
+        },
+        outs = ["dist"],
+        cmd = """
+        set -Eeuo pipefail
+        mkdir -p $OUTS
+        if [ -v SRCS_PUBLIC ]; then
+            for src in $SRCS_PUBLIC; do
+                relpath="$(realpath --relative-to="$PKG" "$src")"
+                reldir="$(dirname "$relpath")"
+                mkdir -p "$OUTS/$reldir"
+                cp "$src" "$OUTS/$relpath"
+                echo "copied $src to $OUTS/$relpath"
+            done
+        fi
+
+        # cache bust the js files
+        mapfile -t srcs < <(find . -name '*.js' -type f)
+        for src in "${srcs[@]}"; do
+            src_hash="$(sha256sum "$src" | cut -c-7)"
+            filename="$(basename "$src")"
+            name="${filename%.*}"
+            old_src_name="$(basename "$src")"
+            new_src_name="$name.$src_hash.js"
+            mv "$src" "$OUTS/$new_src_name"
+
+            # move sourcemap too if it exists
+            if [ -f "${src}.map" ]; then
+                mv "${src}.map" "$OUTS/${new_src_name}.map"
+            fi
+            find "$OUTS" -type f \\
+                | xargs sed -i "s#$old_src_name#$new_src_name#g"
+        done
+        """,
+        visibility = visibility,
+    )
+
+    caddyfile=genrule(
+        name = f"{name}_caddyfile",
+        outs = [f"{name}.Caddyfile"],
+        data = [dist],
+        cmd = f"""
+        cat <<EOF > $OUT
+{{
+    admin off
+}}
+:8080 {{
+        root * $(out_location {dist})
+        file_server browse
+}}
+EOF
+    """,
+    )
+
+    sh_cmd(
+        name = f"{name}_serve",
+        data = [
+            dist,
+            caddy_tool,
+            caddyfile,
+        ],
+        shell = "/usr/bin/env bash",
+        cmd = f"""
+        set -Eeuo pipefail
+        set -x
+        $(out_exe {caddy_tool}) run \\
+            --config $(out_location {caddyfile}) \\
+            --adapter caddyfile
+        """
+    )
+
+    return bundle
+
+def nodejs_bundle_binary(
+    name: str,
+    srcs: list = [],
+    deps: list = [],
+    build_cmd: str,
+    vercel_pkg_binaries: str = None,
+    vercel_pkg_dep: str = None,
+    toolchain: str = None,
+):
+    """ Build rule to build a binary bundle via ESBuild and vercel/pkg.
+    Args:
+        name: The name of the build rule.
+        srcs: The source files to include in the bundle.
+        deps: The NPM packages that the srcs depend on.
+        vercel_pkg_binaries: The target that contains the vercel/pkg binaries to use. This defaults to 'VercelPkgBinaries'.
+        vercel_pkg_dep: The target that contains the vercel/pkg package to use. This defaults to 'VercelPkgDep'.
+        toolchain: The NodeJS toolchain to use. This defaults to 'DefaultToolchain'.
+    """
+    toolchain = _param_or_global("toolchain", toolchain, "DefaultToolchain", "DEFAULT_TOOLCHAIN")
+    vercel_pkg_binaries = _param_or_global("vercel_pkg_binaries", vercel_pkg_binaries, "VercelPkgBinaries", "VERCEL_PKG_BINARIES")
+    vercel_pkg_dep = _param_or_global("vercel_pkg_dep", vercel_pkg_dep, "VercelPkgDep", "VERCEL_PKG_DEP")
+
+    if not vercel_pkg_dep and not CONFIG.NODEJS.VERCEL_PKG_DEP:
+        fail("no 'vercel_pkg_dep' or 'nodejs.VercelPkgDep' specified.")
+    vercel_pkg_dep = vercel_pkg_dep or CONFIG.NODEJS.VERCEL_PKG_DEP
+
+    deps += [vercel_pkg_dep]
+
+    package_json = nodejs_package_json(
+        name = tag(name, "package_json"),
+        deps = deps,
+    )
+
+    node_modules = nodejs_node_modules(
+        name = tag(name, "node_modules"),
+        package_json = package_json,
+        deps = deps,
+        toolchain = toolchain,
+    )
+
+    pkg_os=nodejs_pkg_os(CONFIG.OS, False)
+    pkg_arch=nodejs_pkg_arch(CONFIG.ARCH)
+
+    genrule(
+        name = name,
+        srcs = {
+            "package_json": [package_json],
+            "node_modules": [node_modules],
+            "srcs": srcs,
+            "pkg_cache": [vercel_pkg_binaries],
+        },
+        tools = [
+            toolchain,
+        ],
+        outs = [name],
+        cmd = f"""
+        set -Eeuo pipefail
+        source $(location {toolchain})/venv.sh
+        export PATH="$HOME/$(location {node_modules})/.bin:$PATH"
+        OUT="$HOME/{name}_out"
+        cd $PKG
+        {build_cmd}
+
+        mv $HOME/$SRCS_PKG_CACHE $HOME/.pkg-cache
+        node_version="$(<$HOME/.pkg-cache/.please_nodejs_node_version)"
+        pkg \\
+            --output $HOME/$OUTS \\
+            -t node${{node_version}}-{pkg_os}-{pkg_arch} \\
+            $OUT/*
+        """,
+        binary = True,
+        sandbox = True,
+    )
+
+def nodejs_pkg_os(go_os: str, cgo_enabled: bool):
+    # if go_os == "linux" and not cgo_enabled:
+    #     return "linuxstatic"
+
+    return go_os
+
+def nodejs_pkg_arch(go_arch: str):
+    if go_arch == "amd64":
+        return "x64"
+
+    return go_arch
+
+def nodejs_pkg_binary(
+    version: str,
+    go_os: str,
+    cgo_enabled: bool = False,
+    go_arch: str,
+):
+    pkg_os = nodejs_pkg_os(go_os, cgo_enabled)
+    pkg_arch = nodejs_pkg_arch(go_arch)
+
+    return f"node-{version}-{pkg_os}-{pkg_arch}"
+
+def nodejs_pkg_host_binary(version: str):
+    return nodejs_pkg_binary(
+        version,
+        CONFIG.OS,
+        False,
+        CONFIG.ARCH,
+    )
+
+def _param_or_global(
+    paramName: str,
+    paramVal: str,
+    globalName: str,
+    globalKey: str,
+):
+    if not paramVal and not CONFIG.NODEJS[globalKey]:
+        fail(f"no '{paramName}' or 'nodejs.{globalName}' specified.")
+
+    return paramVal or CONFIG.NODEJS[globalKey]
+
+def _validate_config():
+    default_nodejs_tools = [
+        "///nodejs//third_party/binary:please_nodejs",
+        "//third_party/binary:please_nodejs",
+    ]
+    if CONFIG.NODEJS.TOOL not in default_nodejs_tools and CONFIG.NODEJS.TOOL_VERSION:
+        fail(f"nodejs.ToolVersion should only be set when nodejs.Tool is the default value (currently: '{CONFIG.NODEJS.TOOL}').")
+
+def _nodejs_tool():
+    _validate_config()
+    if CONFIG.NODEJS.TOOL_VERSION:
+        remote_file(
+            name = "please_nodejs",
+            url = f"https://github.com/VJftw/please-nodejs/releases/download/{CONFIG.NODEJS.TOOL_VERSION}/please_nodejs_{CONFIG.NODEJS.TOOL_VERSION}_{CONFIG.OS}_{CONFIG.ARCH}",
+            visibility = ["PUBLIC"],
+            binary = True,
+        )
