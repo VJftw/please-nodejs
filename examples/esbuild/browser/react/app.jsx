@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from "react";
 import ReactDOM from "react-dom";
 
-const App = (props: { message: string }) => {
+const App = (props) => {
     const [count, setCount] = useState(0);
     const increment = useCallback(() => {
         setCount(count => count + 1);

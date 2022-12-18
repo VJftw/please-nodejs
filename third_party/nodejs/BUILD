@@ -1,13 +1,8 @@
 subinclude("//build/defs:nodejs")
 
 nodejs_toolchain(
-    name = "nodejs",
+    name = "toolchain",
     version = "18.12.0",
-)
-
-nodejs_esbuild_toolchain(
-    name = "esbuild",
-    version = "0.15.16",
 )
 
 nodejs_vercel_pkg_binaries(

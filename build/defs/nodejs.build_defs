@@ -42,34 +42,6 @@ EOF
         visibility = visibility,
     )
 
-def nodejs_esbuild_toolchain(
-    name: str,
-    version: str,
-    visibility: list = ["PUBLIC"],
-):
-    """ Build rule for obtaining a version of ESBuild.
-    Args:
-        name: The name of the build rule.
-        version: The version of ESBuild to download.
-        visibility: The targets to make the toolchain visible to.
-    """
-    arch = ""
-    if CONFIG.ARCH == "amd64":
-        arch = "64"
-    else:
-        fail(f"Unsupported architecture: {CONFIG.ARCH}")
-
-    remote_file(
-        name = name,
-        url = f"https://registry.npmjs.org/esbuild-{CONFIG.OS}-{arch}/-/esbuild-{CONFIG.OS}-{arch}-{version}.tgz",
-        extract = True,
-        binary = True,
-        visibility = visibility,
-        exported_files = [
-            "package/bin/esbuild",
-        ],
-    )
-
 def nodejs_npm_package(
     name: str,
     package_name: str = None,
@@ -268,35 +240,30 @@ def nodejs_vercel_pkg_binaries(
         visibility = visibility,
     )
 
-def nodejs_esbuild_bundle_browser(
+def nodejs_bundle_browser(
     name: str,
-    entrypoints: list,
     srcs: list = [],
     public: list = [],
     deps: list = [],
-    browsers: list = [],
-    esbuild_tool: str = None,
-    esbuild_args: list = [],
+    build_cmd: str,
     toolchain: str = None,
     caddy_tool: str = None,
     visibility: list = [],
 ):
-    """ Build rule to build a browser bundle via ESBuild.
+    """ Build rule to build a browser bundle via the given `build_cmd`.
     Args:
         name: The name of the build rule.
-        entrypoints: The source files to use as entrypoints for the bundle.
+        entrypoint: The source file to use as the entrypoint for the bundle.
         srcs: Additional source files to include in the bundle.
         public: Static public files to include in the dist.
         deps: The NPM packages that the srcs depend on.
-        browsers: A list of browser targets. See https://esbuild.github.io/api/#target
-        esbuild_tool: The tool to use as ESBuild. This defaults to 'ESBuildTool'.
-        esbuild_args: Additional args to pass to ESBuild.
+        build_cmd: The command to use to build the given sources. This command
+                   should output the build js file to `$OUT`.
         toolchain: The NodeJS toolchain to use. This defaults to 'DefaultToolchain'.
         caddy_tool: The Caddy tool to use. This defaults to 'CaddyTool'.
         visibility: The targets to make the outputs visible to.
     """
     toolchain = _param_or_global("toolchain", toolchain, "DefaultToolchain", "DEFAULT_TOOLCHAIN")
-    esbuild_tool = _param_or_global("esbuild_tool", esbuild_tool, "ESBuildTool", "ESBUILD_TOOL")
     caddy_tool = _param_or_global("caddy_tool", caddy_tool, "CaddyTool", "CADDY_TOOL")
 
     package_json = nodejs_package_json(
@@ -311,12 +278,6 @@ def nodejs_esbuild_bundle_browser(
         toolchain = toolchain,
     )
 
-    browser_flag=",".join(browsers)
-    esbuild_args+=["--minify", "--sourcemap", f"--target={browser_flag}"]
-    esbuild_args_cmd=" ".join(esbuild_args)
-
-    entrypoints_cmd = " ".join(entrypoints)
-
     bundle = genrule(
         name = name,
         sandbox = True,
@@ -324,17 +285,14 @@ def nodejs_esbuild_bundle_browser(
             "package_json": [package_json],
             "node_modules": [node_modules],
             "srcs": srcs,
-            "entrypoints": entrypoints,
         },
-        tools = [esbuild_tool],
-        outs = [f"{name}.js"],
+        output_dirs = [f"{name}_out"],
         cmd = f"""
         set -Eeuo pipefail
+        export PATH="$HOME/$(location {node_modules})/.bin:$PATH"
+        OUT="$HOME/{name}_out"
         cd $PKG
-        $TOOLS \\
-            --bundle {esbuild_args_cmd} \\
-            --outfile=$HOME/$OUTS \\
-            {entrypoints_cmd}
+        {build_cmd}
         """,
         visibility = visibility,
     )
@@ -350,24 +308,52 @@ def nodejs_esbuild_bundle_browser(
         cmd = """
         set -Eeuo pipefail
         mkdir -p $OUTS
-        for src in $SRCS_PUBLIC; do
-            relpath="$(realpath --relative-to="$PKG" "$src")"
-            reldir="$(dirname "$relpath")"
-            mkdir -p "$OUTS/$reldir"
-            cp "$src" "$OUTS/$relpath"
-            echo "copied $src to $OUTS/$relpath"
-        done
+        if [ -v SRCS_PUBLIC ]; then
+            for src in $SRCS_PUBLIC; do
+                relpath="$(realpath --relative-to="$PKG" "$src")"
+                reldir="$(dirname "$relpath")"
+                mkdir -p "$OUTS/$reldir"
+                cp "$src" "$OUTS/$relpath"
+                echo "copied $src to $OUTS/$relpath"
+            done
+        fi
 
-        # cache bust the bundle
-        bundle_hash="$(sha256sum "$SRCS_BUNDLE" | cut -c-7)"
-        new_bundle_name="$(basename "${SRCS_BUNDLE%.*}").$bundle_hash.js"
-        mv "$SRCS_BUNDLE" "$OUTS/$new_bundle_name"
-        old_bundle_name="$(basename "$SRCS_BUNDLE")"
-        set -x
-        find "$OUTS" -type f \\
-            | xargs sed -i "s#$old_bundle_name#$new_bundle_name#g"
+        # cache bust the js files
+        mapfile -t srcs < <(find . -name '*.js' -type f)
+        for src in "${srcs[@]}"; do
+            src_hash="$(sha256sum "$src" | cut -c-7)"
+            filename="$(basename "$src")"
+            name="${filename%.*}"
+            old_src_name="$(basename "$src")"
+            new_src_name="$name.$src_hash.js"
+            mv "$src" "$OUTS/$new_src_name"
+
+            # move sourcemap too if it exists
+            if [ -f "${src}.map" ]; then
+                mv "${src}.map" "$OUTS/${new_src_name}.map"
+            fi
+            find "$OUTS" -type f \\
+                | xargs sed -i "s#$old_src_name#$new_src_name#g"
+        done
         """,
         visibility = visibility,
+    )
+
+    caddyfile=genrule(
+        name = f"{name}_caddyfile",
+        outs = [f"{name}.Caddyfile"],
+        data = [dist],
+        cmd = f"""
+        cat <<EOF > $OUT
+{{
+    admin off
+}}
+:8080 {{
+        root * $(out_location {dist})
+        file_server browse
+}}
+EOF
+    """,
     )
 
     sh_cmd(
@@ -375,27 +361,25 @@ def nodejs_esbuild_bundle_browser(
         data = [
             dist,
             caddy_tool,
+            caddyfile,
         ],
         shell = "/usr/bin/env bash",
         cmd = f"""
         set -Eeuo pipefail
         set -x
-        $(out_exe {caddy_tool}) \\
-            file-server \\
-            --access-log \\
-            --listen :8080 \\
-            --root $(out_location {dist})
+        $(out_exe {caddy_tool}) run \\
+            --config $(out_location {caddyfile}) \\
+            --adapter caddyfile
         """
     )
 
     return bundle
 
-def nodejs_esbuild_bundle_binary(
+def nodejs_bundle_binary(
     name: str,
     srcs: list = [],
     deps: list = [],
-    esbuild_tool: str = None,
-    esbuild_args: list = [],
+    build_cmd: str,
     vercel_pkg_binaries: str = None,
     vercel_pkg_dep: str = None,
     toolchain: str = None,
@@ -405,14 +389,11 @@ def nodejs_esbuild_bundle_binary(
         name: The name of the build rule.
         srcs: The source files to include in the bundle.
         deps: The NPM packages that the srcs depend on.
-        esbuild_tool: The tool to use as ESBuild. This defaults to 'ESBuildTool'.
-        esbuild_args: Additional args to pass to ESBuild.
         vercel_pkg_binaries: The target that contains the vercel/pkg binaries to use. This defaults to 'VercelPkgBinaries'.
         vercel_pkg_dep: The target that contains the vercel/pkg package to use. This defaults to 'VercelPkgDep'.
         toolchain: The NodeJS toolchain to use. This defaults to 'DefaultToolchain'.
     """
     toolchain = _param_or_global("toolchain", toolchain, "DefaultToolchain", "DEFAULT_TOOLCHAIN")
-    esbuild_tool = _param_or_global("esbuild_tool", esbuild_tool, "ESBuildTool", "ESBUILD_TOOL")
     vercel_pkg_binaries = _param_or_global("vercel_pkg_binaries", vercel_pkg_binaries, "VercelPkgBinaries", "VERCEL_PKG_BINARIES")
     vercel_pkg_dep = _param_or_global("vercel_pkg_dep", vercel_pkg_dep, "VercelPkgDep", "VERCEL_PKG_DEP")
 
@@ -437,8 +418,6 @@ def nodejs_esbuild_bundle_binary(
     pkg_os=nodejs_pkg_os(CONFIG.OS, False)
     pkg_arch=nodejs_pkg_arch(CONFIG.ARCH)
 
-    esbuild_args_cmd=" ".join(esbuild_args)
-
     genrule(
         name = name,
         srcs = {
@@ -448,24 +427,23 @@ def nodejs_esbuild_bundle_binary(
             "pkg_cache": [vercel_pkg_binaries],
         },
         tools = [
-            esbuild_tool,
             toolchain,
         ],
         outs = [name],
         cmd = f"""
         set -Eeuo pipefail
-        mv $SRCS_PACKAGE_JSON package.json
-        mv $SRCS_NODE_MODULES node_modules
-        $(exe //third_party/nodejs:esbuild) \\
-            --bundle {esbuild_args_cmd} \\
-            --outfile=out.js \\
-            $SRCS_SRCS
-
-        mv $SRCS_PKG_CACHE ~/.pkg-cache
         source $(location {toolchain})/venv.sh
+        export PATH="$HOME/$(location {node_modules})/.bin:$PATH"
+        OUT="$HOME/{name}_out"
+        cd $PKG
+        {build_cmd}
+
+        mv $HOME/$SRCS_PKG_CACHE $HOME/.pkg-cache
         node_version="$(<$HOME/.pkg-cache/.please_nodejs_node_version)"
-        ./node_modules/.bin/pkg -t node${{node_version}}-{pkg_os}-{pkg_arch} out.js
-        mv out $OUTS
+        pkg \\
+            --output $HOME/$OUTS \\
+            -t node${{node_version}}-{pkg_os}-{pkg_arch} \\
+            $OUT/*
         """,
         binary = True,
         sandbox = True,

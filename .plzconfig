@@ -65,12 +65,6 @@ Optional = true
 Help = "Sets the given target to use as 'pnpm'."
 DefaultValue = "//third_party/binary:pnpm"
 
-[PluginConfig "esbuild_tool"]
-ConfigKey = ESBuildTool
-Optional = true
-Help = "Sets the given target to use as 'esbuild'."
-DefaultValue = "//third_party/nodejs:esbuild"
-
 [PluginConfig "caddy_tool"]
 ConfigKey = CaddyTool
 Optional = true
@@ -80,7 +74,7 @@ DefaultValue = "//third_party/binary:caddy"
 ; Use the plugin in this repository for tests.
 [Plugin "nodejs"]
 Tool = //cmd/please_nodejs
-DefaultToolchain = //third_party/nodejs:nodejs
+DefaultToolchain = //third_party/nodejs:toolchain
 
 [Plugin "go"]
 Target = //third_party/plugins:go

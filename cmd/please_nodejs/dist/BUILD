@@ -5,7 +5,7 @@ subinclude("//:version")
 def cross_compile(arch):
     return genrule(
         name = f"please_nodejs_{arch}",
-        srcs = ["///{arch}//cmd/please_nodejs"],
+        srcs = [f"///{arch}//cmd/please_nodejs"],
         outs = [f"please_nodejs_{VERSION}_{arch}"],
         cmd = "mv $SRC $OUT",
     )

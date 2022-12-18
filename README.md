@@ -6,9 +6,8 @@ This includes support for the following:
 
 * `nodejs_toolchain`: Easy management of multiple versions of NodeJS.
 * `nodejs_npm_package`: Incremental NPM packages from a NPM package registry.
-* `nodejs_esbuild_bundle_browser`: Builds a browser bundle for the given srcs via ESBuild.
-* `nodejs_esbuild_bundle_binary`: Builds a binary bundle for the given srcs via ESBuild and `vercel/pkg`.
-* Advanced: `nodejs_esbuild_toolchain`: Easy management of multiple versions of ESBuild.
+* `nodejs_bundle_browser`: Builds a browser bundle for the given srcs using the given `build_cmd`.
+* `nodejs_bundle_binary`: Builds a binary bundle for the given srcs via the given `build_cmd` and `vercel/pkg`.
 * Advanced: `nodejs_package_json`: Generates a `package.json` from `nodejs_npm_package`s.
 * Advanced: `nodejs_node_modules`: Generates a `node_modules` from `nodejs_package_json`.
 * Advanced: `nodejs_vercel_pkg_binaries`: Downloads Node binaries used by `vercel/pkg` to generate executables.
@@ -35,7 +34,7 @@ $ ./pleasew run ///nodejs//third_party/binary:please_nodejs -- install express@4
 $ ./pleasew run ///nodejs//third_party/binary:please_nodejs -- install -s express
 
 # generate rules in under a user-provided Please package for the latest version of express and its dependencies.
-$ ./pleasew run ///nodejs//third_party/binary:please_nodejs -- install --pkg_prefix "//test/esbuild/react-dom/third_party/nodejs" express
+$ ./pleasew run ///nodejs//third_party/binary:please_nodejs -- install --pkg_prefix "//examples/esbuild/binary/react-server/third_party/nodejs" express
 ```
 
 I highly recommend creating an alias in your `.plzconfig` for this like so:
@@ -47,7 +46,7 @@ cmd = run ///nodejs//third_party/binary:please_nodejs -- -s
 ```
 
 
-## `nodejs_esbuild_bundle_browser`
+## `nodejs_bundle_browser`
 
 This build rule allows you to build a browser bundle via ESBuild. For example, a React web-application may be built via this rule.
 
@@ -58,22 +57,30 @@ It generates the following subrules:
 
 ### Examples
 
-#### `test/esbuild/react-typescript`: A Simple React Counter application
+#### `examples/react-typescript`: A Simple React Counter application
 
 ```bash
-$ ./pleasew watch --run //test/esbuild/react-typescript:react-typescript_serve
+$ ./pleasew watch --run //examples/esbuild/browser/react:react_serve
 ```
 
-#### `test/esbuild/react-typescript-tailwindcss`: A Simple React Counter application with TailwindCSS styling
+#### `examples/react-typescript-tailwindcss`: A Contacts React Web App with multiple srcs
 
 ```bash
-$ ./pleasew watch --run //test/esbuild/react-typescript-tailwindcss:react-typescript-tailwind_serve
+$ ./pleasew watch --run //examples/esbuild/browser/react-typescript-tailwindcss:react-typescript-tailwindcss_serve
 ```
 
 
 ## `nodejs_esbuild_bundle_binary`
 
-This build rule allows you to build a binary bundle via ESBuild and `vercel/pkg`. For example, a React server application may be built via this rule. See `test/esbuild/react-dom` for an example.
+This build rule allows you to build a binary bundle via ESBuild and `vercel/pkg`. For example, a React server application may be built via this rule.
+
+### Examples
+
+#### `examples/esbuild/binary/react-server`: A React Server standalone binary
+
+```bash
+$ ./pleasew run //examples/esbuild/binary/react-server:react-server
+```
 
 ## Usage
 
