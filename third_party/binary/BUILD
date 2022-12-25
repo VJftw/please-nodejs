@@ -26,3 +26,9 @@ remote_file(
     url = f"https://github.com/caddyserver/caddy/releases/download/v2.6.2/caddy_2.6.2_{CONFIG.OS}_{CONFIG.ARCH}.tar.gz",
     visibility = ["PUBLIC"],
 )
+
+subinclude("//build/defs:nodejs")
+
+# This remote_file sources our built binary to save us having to rebuild the
+# tool in every use of this plugin.
+_nodejs_tool()
