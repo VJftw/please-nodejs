@@ -42,7 +42,7 @@ I highly recommend creating an alias in your `.plzconfig` for this like so:
 ```ini
 [alias "npm-install"]
 desc = Runs please_nodejs install to install new dependencies into the repo
-cmd = run ///nodejs//third_party/binary:please_nodejs -- -s
+cmd = run ///nodejs//third_party/binary:please_nodejs -- install -s
 ```
 
 
@@ -93,7 +93,7 @@ $ ./pleasew run //examples/esbuild/binary/react-server:react-server
 PluginRepo = ["https://github.com/{owner}/{plugin}/archive/{revision}.zip"]
 [Plugin "nodejs"]
 Target = //third_party/plugins:nodejs
-ToolVersion = "v0.0.1" ; Skipping ToolVersion will build the Tool from source.
+ToolVersion = "v0.0.2" ; Skipping ToolVersion will build the Tool from source.
 
 [Build]
 ; This links package.json and node_modules to the repo so that IDEs give us type
@@ -115,6 +115,6 @@ plugin_repo(
     name = "nodejs",
     owner = "VJftw",
     plugin = "please-nodejs",
-    revision = "v0.0.1",
+    revision = "v0.0.2",
 )
 ```
