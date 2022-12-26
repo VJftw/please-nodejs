@@ -91,7 +91,7 @@ def nodejs_npm_package(
         cmd = f"""
         set -Eeuo pipefail
         source $(location {toolchain})/venv.sh
-        pnpm="$(exe //third_party/binary:pnpm)"
+        pnpm="$(exe {pnpm_tool})"
 
         "$pnpm" store add {package_name}@{version}
 
