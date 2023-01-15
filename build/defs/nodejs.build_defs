@@ -35,7 +35,6 @@ def nodejs_toolchain(
 cat <<EOF > $OUTS/venv.sh
 DIR="\\\$( cd "\\\$( dirname "\\\${BASH_SOURCE[0]}" )" && pwd )"
 export PATH="\\\$DIR/bin:$PATH"
-echo "added \\\$DIR/bin to the path"
 EOF
         source $OUTS/venv.sh
         """,
