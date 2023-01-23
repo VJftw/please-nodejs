@@ -348,6 +348,7 @@ def nodejs_bundle_browser(
     admin off
 }}
 :8080 {{
+        try_files {path} /
         root * $(out_location {dist})
         file_server browse
 }}
