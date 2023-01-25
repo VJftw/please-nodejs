@@ -1,0 +1,10 @@
+def _param_or_global(
+    paramName: str,
+    paramVal: str,
+    globalName: str,
+    globalKey: str,
+):
+    if not paramVal and not CONFIG.NODEJS[globalKey]:
+        fail(f"no '{paramName}' or 'nodejs.{globalName}' specified.")
+
+    return paramVal or CONFIG.NODEJS[globalKey]

@@ -1,6 +1,9 @@
 package npm
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 type PackageVersionData struct {
 	Name         string            `json:"name"`
@@ -33,4 +36,8 @@ func (pvd *PackageVersionData) UnmarshalJSON(b []byte) error {
 	}
 
 	return nil
+}
+
+func (pvd *PackageVersionData) String() string {
+	return fmt.Sprintf("%s@%s", pvd.Name, pvd.Version)
 }

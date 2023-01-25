@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"math"
 	"runtime"
 	"strings"
 
@@ -32,11 +31,12 @@ BUILD files. e.g.:
 			},
 			&cli.IntFlag{
 				Name:  "workers",
-				Value: int(math.Ceil(float64(runtime.NumCPU()) / 2)),
+				Value: runtime.NumCPU() - 1,
 			},
 			&cli.IntFlag{
 				Name:  "buffer_length",
-				Value: 128,
+				Value: 256,
+				Usage: "The size of the resolver buffers. If you find this tool hanging, increase this.",
 			},
 			&cli.StringFlag{
 				Name:  "pkg_prefix",

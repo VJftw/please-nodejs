@@ -8,6 +8,7 @@ go_binary(
         "npmpackagedeps.go",
         "packagejson.go",
     ],
+    static = True,
     visibility = ["PUBLIC"],
     deps = [
         "//pkg/npm",
@@ -16,9 +17,9 @@ go_binary(
         "//pkg/please/nodejs",
         "//third_party/go/github.com/mattn/go-isatty",
         "//third_party/go/github.com/rs/zerolog",
+        "//third_party/go/github.com/peterbourgon/mergemap",
         "//third_party/go/github.com/urfave/cli/v2",
     ],
-    static = True,
 )
 
 # subinclude("//build/defs:buildkit")

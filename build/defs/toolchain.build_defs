@@ -1,0 +1,40 @@
+
+def nodejs_toolchain(
+    name: str,
+    version: str,
+    visibility: list = ["PUBLIC"],
+):
+    """Build rule for obtaining a version of the NodeJS toolchain.
+    Args:
+        name: The name of the build rule.
+        version: The version of NodeJS to download.
+        visibility: The targets to make the toolchain visibile to.
+    """
+    arch = ""
+    if CONFIG.ARCH == "amd64":
+        arch = "x64"
+    else:
+        fail(f"Unsupported architecture: {CONFIG.ARCH}")
+
+    download=remote_file(
+        name = f"{name}#download",
+        url = f"https://nodejs.org/dist/v{version}/node-v{version}-{CONFIG.OS}-{arch}.tar.xz",
+        extract = True,
+        visibility = visibility,
+    )
+
+    venv=genrule(
+        name = name,
+        srcs = [download],
+        outs = [name],
+        cmd = """
+        mv $SRCS $OUTS
+
+cat <<EOF > $OUTS/venv.sh
+DIR="\\\$( cd "\\\$( dirname "\\\${BASH_SOURCE[0]}" )" && pwd )"
+export PATH="\\\$DIR/bin:$PATH"
+EOF
+        source $OUTS/venv.sh
+        """,
+        visibility = visibility,
+    )

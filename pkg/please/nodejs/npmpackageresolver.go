@@ -37,6 +37,8 @@ type NPMPackageResolver struct {
 	npmClient *npm.Client
 
 	opts *NPMPackageResolverOpts
+
+	resolvedPackages sync.Map
 }
 
 // NewNPMPackageResolver returns a new NPMPackageResolver.
@@ -56,8 +58,9 @@ func NewNPMPackageResolver(
 	}
 
 	return &NPMPackageResolver{
-		npmClient: npmClient,
-		opts:      opts,
+		npmClient:        npmClient,
+		opts:             opts,
+		resolvedPackages: sync.Map{},
 	}
 }
 
@@ -227,6 +230,11 @@ func (r *NPMPackageResolver) resolveWorkerPkg(
 		ResolvedDepVersions: map[string]*npm.PackageVersionData{},
 	}
 
+	_, ok := r.resolvedPackages.Load(pvd.String())
+	if ok {
+		return nil
+	}
+
 	for dependencyName, versionConstraintStr := range pvd.Dependencies {
 		pkgMetadata, err := r.npmClient.Package(dependencyName)
 		if err != nil {
@@ -238,8 +246,17 @@ func (r *NPMPackageResolver) resolveWorkerPkg(
 			return err
 		}
 
-		pkgsCh <- fmt.Sprintf("%s@%s", compatibleVersion.Name, compatibleVersion.Version)
-		wg.Add(1)
+		_, ok := r.resolvedPackages.Load(compatibleVersion.String())
+		if !ok {
+			log.Debug().
+				Str("package", compatibleVersion.Name).
+				Str("version", compatibleVersion.Version).
+				Str("pkgsCh", fmt.Sprintf("%d/%d", len(pkgsCh), cap(pkgsCh))).
+				Msg("queued pkg")
+
+			pkgsCh <- fmt.Sprintf("%s@%s", compatibleVersion.Name, compatibleVersion.Version)
+			wg.Add(1)
+		}
 
 		// log.Debug().
 		// 	Str("package", installableNPMPackage.Name).
@@ -250,9 +267,12 @@ func (r *NPMPackageResolver) resolveWorkerPkg(
 		installableNPMPackage.ResolvedDepVersions[pkgMetadata.Name] = compatibleVersion
 	}
 
+	r.resolvedPackages.Store(pvd.String(), installableNPMPackage)
+
 	log.Debug().
 		Str("package", installableNPMPackage.Name).
 		Str("version", installableNPMPackage.Version).
+		Str("resCh", fmt.Sprintf("%d/%d", len(pkgsCh), cap(pkgsCh))).
 		Msg("added pkg")
 	resCh <- installableNPMPackage
 

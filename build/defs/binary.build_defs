@@ -1,0 +1,151 @@
+subinclude("///nodejs//build/defs:utils")
+
+subinclude("///nodejs//build/defs:npm")
+
+def nodejs_vercel_pkg_binaries(
+    name: str,
+    version: str,
+    node_version: str,
+    extra_os_architectures: list = [],
+    visibility: list = [],
+):
+    """ Build rule for downloading vercel/pkg-fetch binaries to package NodeJS
+    binaries.
+    Args:
+        name: The name of the build rule.
+        version: The version of pkg-fetch to download. See https://github.com/vercel/pkg-fetch/releases.
+        node_version: The version of node the binary to download, e.g. v16.15.0.
+        extra_os_architectures: A list of extra OS architectures to download for this node version.
+        visibility: The targets to make the package visible to.
+    """
+    binaries = []
+    binaries += [nodejs_pkg_host_binary(node_version)]
+    for os_arch in extra_os_architectures:
+        os = os_arch.split("-")[0]
+        arch = os_arch.split("-")[1]
+        binaries += [nodejs_pkg_binary(node_version, os, False, arch)]
+
+    binary_rules = []
+    for binary in binaries:
+        binary_rule=remote_file(
+            name = tag(name, binary),
+            url = f"https://github.com/vercel/pkg-fetch/releases/download/{version}/{binary}",
+        )
+        binary_rules += [binary_rule]
+
+    return genrule(
+        name = name,
+        srcs = binary_rules,
+        outs = [name],
+        cmd = f"""
+        set -Eeuo pipefail
+        mkdir -p "$OUTS/{version}"
+        for src in $SRCS; do
+            newName="$(basename "${{src//node-/fetched-}}")"
+            mv "$src" "$OUTS/{version}/$newName"
+        done
+        echo "{node_version}" | cut -f1 -d. | cut -f2 -dv > "$OUTS/.please_nodejs_node_version"
+        """,
+        visibility = visibility,
+    )
+
+def nodejs_bundle_binary(
+    name: str,
+    srcs: list = [],
+    deps: list = [],
+    build_cmd: str,
+    vercel_pkg_binaries: str = None,
+    vercel_pkg_dep: str = None,
+    package_json_extra: dict = {},
+    toolchain: str = None,
+):
+    """ Build rule to build a binary bundle via ESBuild and vercel/pkg.
+    Args:
+        name: The name of the build rule.
+        srcs: The source files to include in the bundle.
+        deps: The NPM packages that the srcs depend on.
+        vercel_pkg_binaries: The target that contains the vercel/pkg binaries to use. This defaults to 'VercelPkgBinaries'.
+        vercel_pkg_dep: The target that contains the vercel/pkg package to use. This defaults to 'VercelPkgDep'.
+        package_json_extra: Extra data to merge with the package.json.
+        toolchain: The NodeJS toolchain to use. This defaults to 'DefaultToolchain'.
+    """
+    toolchain = _param_or_global("toolchain", toolchain, "DefaultToolchain", "DEFAULT_TOOLCHAIN")
+    vercel_pkg_binaries = _param_or_global("vercel_pkg_binaries", vercel_pkg_binaries, "VercelPkgBinaries", "VERCEL_PKG_BINARIES")
+    vercel_pkg_dep = _param_or_global("vercel_pkg_dep", vercel_pkg_dep, "VercelPkgDep", "VERCEL_PKG_DEP")
+
+    if not vercel_pkg_dep and not CONFIG.NODEJS.VERCEL_PKG_DEP:
+        fail("no 'vercel_pkg_dep' or 'nodejs.VercelPkgDep' specified.")
+    vercel_pkg_dep = vercel_pkg_dep or CONFIG.NODEJS.VERCEL_PKG_DEP
+
+    deps += [vercel_pkg_dep]
+
+    package_json = nodejs_package_json(
+        name = tag(name, "package_json"),
+        deps = deps,
+        extra = package_json_extra,
+    )
+
+    pkg_os=nodejs_pkg_os(CONFIG.OS, False)
+    pkg_arch=nodejs_pkg_arch(CONFIG.ARCH)
+
+    genrule(
+        name = name,
+        srcs = {
+            "package_json": [package_json],
+            "node_modules": [f"{package_json}_node_modules"],
+            "srcs": srcs,
+            "pkg_cache": [vercel_pkg_binaries],
+        },
+        tools = [
+            toolchain,
+        ],
+        outs = [name],
+        cmd = f"""
+        set -Eeuo pipefail
+        source $(location {toolchain})/venv.sh
+        export PATH="$HOME/$(location {package_json}_node_modules)/.bin:$PATH"
+        OUT="$HOME/{name}_out"
+        cd $PKG
+        {build_cmd}
+
+        mv $HOME/$SRCS_PKG_CACHE $HOME/.pkg-cache
+        node_version="$(<$HOME/.pkg-cache/.please_nodejs_node_version)"
+        pkg \\
+            --output $HOME/$OUTS \\
+            -t node${{node_version}}-{pkg_os}-{pkg_arch} \\
+            $OUT/*
+        """,
+        binary = True,
+        sandbox = True,
+    )
+
+def nodejs_pkg_os(go_os: str, cgo_enabled: bool):
+    # if go_os == "linux" and not cgo_enabled:
+    #     return "linuxstatic"
+
+    return go_os
+
+def nodejs_pkg_arch(go_arch: str):
+    if go_arch == "amd64":
+        return "x64"
+
+    return go_arch
+
+def nodejs_pkg_binary(
+    version: str,
+    go_os: str,
+    cgo_enabled: bool = False,
+    go_arch: str,
+):
+    pkg_os = nodejs_pkg_os(go_os, cgo_enabled)
+    pkg_arch = nodejs_pkg_arch(go_arch)
+
+    return f"node-{version}-{pkg_os}-{pkg_arch}"
+
+def nodejs_pkg_host_binary(version: str):
+    return nodejs_pkg_binary(
+        version,
+        CONFIG.OS,
+        False,
+        CONFIG.ARCH,
+    )

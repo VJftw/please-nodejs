@@ -1,0 +1,42 @@
+
+def _generate_caddyfile(name: str, root_target: str):
+    return genrule(
+        name = tag(name, "caddyfile"),
+        outs = [f"{name}.Caddyfile"],
+        data = [root_target],
+        cmd = f"""
+        cat <<EOF > $OUT
+{{
+    admin off
+}}
+:8080 {{
+        try_files {{path}} /index.html
+        root * $(out_location {root_target})
+        file_server browse
+}}
+EOF
+    """,
+    )
+
+def _caddy_serve(
+    name: str,
+    caddyfile: str,
+    root_target: str,
+    caddy_tool: str,
+):
+    return sh_cmd(
+        name = name,
+        data = [
+            root_target,
+            caddy_tool,
+            caddyfile,
+        ],
+        shell = "/usr/bin/env bash",
+        cmd = f"""
+        set -Eeuo pipefail
+        set -x
+        $(out_exe {caddy_tool}) run \\
+            --config $(out_location {caddyfile}) \\
+            --adapter caddyfile
+        """
+    )

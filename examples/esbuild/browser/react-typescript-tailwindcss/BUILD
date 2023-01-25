@@ -10,7 +10,7 @@ nodejs_bundle_browser(
         "contacts/data.tsx",
         "tsconfig.json",
     ],
-    build_cmd = """
+    prod_cmd = """
     esbuild \\
         --bundle --minify --sourcemap \\
         --outdir="$OUT" \\

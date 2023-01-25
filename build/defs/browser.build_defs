@@ -1,0 +1,191 @@
+subinclude("///nodejs//build/defs:caddy")
+subinclude("///nodejs//build/defs:utils")
+subinclude("///nodejs//build/defs:npm")
+
+def nodejs_bundle_browser(
+    name: str,
+    srcs: list = [],
+    public: list = [],
+    deps: list = [],
+    prod_cmd: str,
+    dev_cmd: str = None,
+    toolchain: str = None,
+    caddy_tool: str = None,
+    package_json_extra: dict = {},
+    visibility: list = [],
+):
+    """ Build rule to build a browser bundle via the given `build_cmd`.
+    Args:
+        name: The name of the build rule.
+        entrypoint: The source file to use as the entrypoint for the bundle.
+        srcs: Additional source files to include in the bundle.
+        public: Static public files to include in the dist.
+        deps: The NPM packages that the srcs depend on.
+        prod_cmd: The command to use to build the given sources in production.
+                   This command should output the built js file to `$OUT`.
+                   This is used for the _dist output.
+        dev_cmd: The command to use to build the given sources in development.
+                 This command should output the built js file to `$OUT`. This is
+                 used for the serve command.
+        toolchain: The NodeJS toolchain to use. This defaults to 'DefaultToolchain'.
+        caddy_tool: The Caddy tool to use. This defaults to 'CaddyTool'.
+        package_json_extra: Extra data to merge with the package.json.
+        visibility: The targets to make the outputs visible to.
+    """
+    toolchain = _param_or_global("toolchain", toolchain, "DefaultToolchain", "DEFAULT_TOOLCHAIN")
+    caddy_tool = _param_or_global("caddy_tool", caddy_tool, "CaddyTool", "CADDY_TOOL")
+
+    package_json = nodejs_package_json(
+        name = tag(name, "package_json"),
+        deps = deps,
+        extra = package_json_extra,
+        visibility = visibility,
+    )
+
+    prod = _make_bundle_and_server(
+        name = f"{name}_prod",
+        package_json = package_json,
+        node_modules = f"{package_json}_node_modules",
+        srcs = srcs,
+        public = public,
+        build_cmd = prod_cmd,
+        visibility = visibility,
+        caddy_tool = caddy_tool,
+        toolchain = toolchain,
+    )
+
+    if dev_cmd:
+        dev = _make_bundle_and_server(
+            name = f"{name}_dev",
+            package_json = package_json,
+            node_modules = f"{package_json}_node_modules",
+            srcs = srcs,
+            public = public,
+            build_cmd = dev_cmd,
+            visibility = visibility,
+            caddy_tool = caddy_tool,
+            toolchain = toolchain,
+        )
+
+    return prod
+
+def _build_bundle(
+    name: str,
+    package_json: str,
+    node_modules: str,
+    srcs: list,
+    build_cmd: str,
+    visibility: list,
+    toolchain: str,
+):
+    return genrule(
+        name = name,
+        sandbox = True,
+        srcs = {
+            "package_json": [package_json],
+            "node_modules": [node_modules],
+            "srcs": srcs,
+        },
+        tools = [toolchain],
+        output_dirs = [f"{name}_out"],
+        cmd = f"""
+        set -Eeuo pipefail
+        source $(location {toolchain})/venv.sh
+        export PATH="$HOME/$(location {node_modules})/.bin:$PATH"
+        OUT="$HOME/{name}_out"
+        cd $PKG
+        {build_cmd}
+        """,
+        visibility = visibility,
+    )
+
+def _build_browser_dist(
+    name: str,
+    bundle: str,
+    public: list,
+    visibility: list,
+):
+    return genrule (
+        name = f"{name}_dist",
+        sandbox = True,
+        srcs = {
+            "bundle": [bundle],
+            "public": public,
+        },
+        outs = ["dist"],
+        cmd = """
+        set -Eeuo pipefail
+        mkdir -p $OUTS
+        if [ -v SRCS_PUBLIC ]; then
+            for src in $SRCS_PUBLIC; do
+                relpath="$(realpath --relative-to="$PKG" "$src")"
+                reldir="$(dirname "$relpath")"
+                mkdir -p "$OUTS/$reldir"
+                cp "$src" "$OUTS/$relpath"
+                echo "copied $src to $OUTS/$relpath"
+            done
+        fi
+
+        # cache bust the js files
+        mapfile -t srcs < <(find . -name '*.js' -type f)
+        for src in "${srcs[@]}"; do
+            src_hash="$(sha256sum "$src" | cut -c-7)"
+            filename="$(basename "$src")"
+            name="${filename%.*}"
+            old_src_name="$(basename "$src")"
+            new_src_name="$name.$src_hash.js"
+            mv "$src" "$OUTS/$new_src_name"
+
+            # move sourcemap too if it exists
+            if [ -f "${src}.map" ]; then
+                mv "${src}.map" "$OUTS/${new_src_name}.map"
+            fi
+            find "$OUTS" -type f \\
+                | xargs sed -i "s#$old_src_name#$new_src_name#g"
+        done
+        """,
+        visibility = visibility,
+    )
+
+
+def _make_bundle_and_server(
+    name: str,
+    package_json: str,
+    node_modules: str,
+    srcs: list,
+    public: list,
+    build_cmd: str,
+    visibility: list,
+    caddy_tool: str,
+    toolchain: str,
+):
+    bundle = _build_bundle(
+        name = name,
+        package_json = package_json,
+        node_modules = node_modules,
+        srcs = srcs,
+        build_cmd = build_cmd,
+        visibility = visibility,
+        toolchain = toolchain,
+    )
+
+    dist = _build_browser_dist(
+        name = tag(name, "dist"),
+        bundle = bundle,
+        public = public,
+        visibility = visibility,
+    )
+
+    caddyfile = _generate_caddyfile(
+        name = tag(name, "caddyfile"),
+        root_target = dist,
+    )
+
+    serve = _caddy_serve(
+        name = f"{name}_serve",
+        caddyfile = caddyfile,
+        root_target = dist,
+        caddy_tool = caddy_tool,
+    )
+
+    return bundle

@@ -3,7 +3,7 @@ genrule(
     srcs = {
         "config": ["tailwind.config.js"],
         "input": ["app.css"],
-        "content": ["//examples/esbuild/browser/react-typescript-tailwindcss:react-typescript-tailwindcss"],
+        "content": ["//examples/esbuild/browser/react-typescript-tailwindcss:react-typescript-tailwindcss_prod"],
     },
     outs = ["app.min.css"],
     cmd = """

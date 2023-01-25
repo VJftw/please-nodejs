@@ -1,0 +1,43 @@
+subinclude("///nodejs//build/defs:utils")
+subinclude("///nodejs//build/defs:npm")
+
+def nodejs_test(
+    name: str,
+    package_json: str,
+    test_cmd: str,
+    srcs: list = [],
+    data: list = [],
+    toolchain: str = None,
+    no_test_output = False,
+):
+    """ Build rule to run unit tests via the given `test_cmd`.
+    Args:
+        name: The name of the test rule.
+        package_json: The `nodejs_package_json` target which will be used
+                      alongside its `_node_modules`.
+        test_cmd: The commands which setup and execute the tests. These should
+                  output a command which writes the results file to `
+                  $RESULTS_FILE` unless `no_test_output = True`. See
+                  https://please.build/tests.html for more information.
+        srcs: The test source files and source that is being tested.
+        data: The data files involved in testing.
+        toolchain: The NodeJS toolchain to use. This defaults to 'DefaultToolchain'.
+        no_test_output: Whether or not the test outputs a results file. See
+                        https://please.build/tests.html for more information.
+    """
+    toolchain = _param_or_global("toolchain", toolchain, "DefaultToolchain", "DEFAULT_TOOLCHAIN")
+
+    return gentest(
+        name = name,
+        data = srcs + data + [
+            package_json,
+            f"{package_json}_node_modules",
+            toolchain,
+        ],
+        test_cmd = f"""
+        set -Eeuo pipefail
+        source "$(location {toolchain})/venv.sh"
+        export PATH="\\$HOME/$(location {package_json}_node_modules)/.bin:\\$PATH"
+        {test_cmd}
+        """,
+    )

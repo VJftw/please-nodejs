@@ -5,7 +5,7 @@ nodejs_bundle_browser(
     srcs = [
         "app.jsx",
     ],
-    build_cmd = """
+    prod_cmd = """
     esbuild \\
         --bundle --minify \\
         --outdir="$OUT" \\
