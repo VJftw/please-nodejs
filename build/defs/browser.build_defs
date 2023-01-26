@@ -112,7 +112,7 @@ def _build_browser_dist(
             "bundle": [bundle],
             "public": public,
         },
-        outs = ["dist"],
+        outs = [f"{name}_dist"],
         cmd = """
         set -Eeuo pipefail
         mkdir -p $OUTS
