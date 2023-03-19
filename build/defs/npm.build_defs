@@ -126,7 +126,8 @@ EOF
             "package_json": [package_json],
         },
         needs_transitive_deps = True,
-        sandbox = True,
+        # TODO: fix #6
+        # sandbox = True,
         tools = [
             toolchain,
             pnpm_tool,
