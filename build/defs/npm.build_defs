@@ -143,6 +143,8 @@ EOF
         find . -name '*.tgz' -exec tar -xzf {{}} \;
 
         mv $SRCS_PACKAGE_JSON package.json
+        # TODO: fix #6
+        # "$pnpm" install --offline
         "$pnpm" install --offline
         """,
         visibility = visibility,
