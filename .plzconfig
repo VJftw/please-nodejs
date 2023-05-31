@@ -6,13 +6,7 @@
 ; Or you can uncomment the following to pin everyone to a particular version;
 ; when you change it all users will automatically get updated.
 [please]
-version = 16.27.1
-
-[featureflags]
-ExcludeGoRules = true
-
-[Parse]
-PreloadSubincludes = ///go//build_defs:go
+version = 17.0.0
 
 [Build]
 ; This links package.json and node_modules to the repo so that IDEs give us type hinting.
@@ -80,6 +74,9 @@ DefaultToolchain = //third_party/nodejs:toolchain
 Target = //third_party/plugins:go
 gotool = //third_party/go:toolchain|go
 importpath = github.com/VJftw/please-nodejs
+
+[Plugin "shell"]
+Target = //third_party/plugins:shell
 
 [alias "go-get"]
 desc = Runs the go deps tool to install new dependencies into the repo

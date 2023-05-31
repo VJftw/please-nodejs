@@ -8,9 +8,8 @@ go_library(
     ],
     visibility = ["//cmd/..."],
     deps = [
+        "///third_party/go/github.com_rs_zerolog//log",
         "//pkg/npm",
         "//pkg/please",
-        "//third_party/go/github.com/bazelbuild/buildtools",
-        "//third_party/go/github.com/rs/zerolog",
     ],
 )

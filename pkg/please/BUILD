@@ -14,8 +14,9 @@ go_library(
         "//pkg/...",
     ],
     deps = [
-        "//third_party/go/github.com/bazelbuild/buildtools",
-        "//third_party/go/github.com/rs/zerolog",
+        "///third_party/go/github.com_bazelbuild_buildtools//build",
+        "///third_party/go/github.com_bazelbuild_buildtools//edit",
+        "///third_party/go/github.com_rs_zerolog//log",
     ],
 )
 
@@ -28,6 +29,6 @@ go_test(
     external = True,
     deps = [
         ":please",
-        "//third_party/go/github.com/stretchr/testify",
+        "///third_party/go/github.com_stretchr_testify//assert",
     ],
 )

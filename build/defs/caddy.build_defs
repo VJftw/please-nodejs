@@ -1,3 +1,4 @@
+subinclude("///shell//build_defs:shell")
 
 def _generate_caddyfile(name: str, root_target: str):
     return genrule(

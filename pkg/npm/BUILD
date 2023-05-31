@@ -13,7 +13,6 @@ go_library(
         "//pkg/...",
     ],
     deps = [
-        "//third_party/go/github.com/Masterminds/semver/v3",
-        "//third_party/go/github.com/rs/zerolog",
+        "///third_party/go/github.com_Masterminds_semver_v3//:v3",
     ],
 )
