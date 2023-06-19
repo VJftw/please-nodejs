@@ -3,7 +3,6 @@ subinclude("///go//build_defs:go")
 go_binary(
     name = "please_nodejs",
     srcs = [
-        "create_npm_package_lock_meta.go",
         "install.go",
         "main.go",
         "npmpackagedeps.go",

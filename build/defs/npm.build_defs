@@ -41,26 +41,19 @@ def nodejs_npm_package(
         ],
         deps = deps,
         cmd = f"""
-        set -Eexuo pipefail
+        set -Eeuo pipefail
         source $(location {toolchain})/venv.sh
 
         # verify that dependencies are available
-        npm view {package_name}@{version} dependencies --json > required_dependencies.json
         "$(exe {please_nodejs_tool})" \\
             --log_format=console \\
             npmpackagedeps \\
-            --required_json="required_dependencies.json"
+            --package="{package_name}" \\
+            --version={version} \\
+            --meta_out=metadata.json
 
         # add the new module to the cache.
         npm cache add {package_name}@{version}
-        npm view {package_name}@{version} --json > view.json
-        "$(exe {please_nodejs_tool})" \\
-            --log_format=console \\
-            create_npm_package_lock_meta \\
-            --name="{package_name}" \\
-            --version="{version}" \\
-            --view=view.json \\
-            --out=metadata.json
 
         safe_pkg_name="$(echo "{package_name}" | sed 's#/#___#g')"
         mv metadata.json $safe_pkg_name@{version}.metadata.json

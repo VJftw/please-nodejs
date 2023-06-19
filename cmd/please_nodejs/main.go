@@ -44,7 +44,6 @@ func main() {
 			PNPMPackageDepsCommand(),
 			NPMPackageDepsCommand(),
 			PackageJSONCommand(),
-			CreateNPMPackageLockMeta(),
 			PackageLockJSONCommand(),
 		},
 		Before: func(cCtx *cli.Context) error {

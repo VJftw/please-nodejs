@@ -6,9 +6,14 @@ import (
 )
 
 type PackageVersionData struct {
-	Name         string            `json:"name"`
-	Version      string            `json:"version"`
-	License      string            `json:"license"`
+	Name    string      `json:"name"`
+	Version string      `json:"version"`
+	License string      `json:"license"`
+	Bin     interface{} `json:"bin"`
+	Dist    struct {
+		Integrity string `json:"integrity"`
+		Tarball   string `json:"tarball"`
+	} `json:"dist"`
 	Dependencies map[string]string `json:"dependencies"`
 }
 

@@ -20,29 +20,17 @@ type PackageLockJSONPackage struct {
 	// Requires map[string]string
 }
 
-func PackageLockJSONPackageFromNameVersionViewJSON(
-	name string,
-	version string,
-	distJSONBytes []byte,
-) (*PackageLockJSONPackage, error) {
-	var view struct {
-		Bin  interface{} `json:"bin"`
-		Dist struct {
-			Integrity string `json:"integrity"`
-			Tarball   string `json:"tarball"`
-		} `json:"dist"`
-	}
-	if err := json.Unmarshal(distJSONBytes, &view); err != nil {
-		return nil, err
-	}
+func PackageLockJSONPackageFromPVD(
+	pvd *PackageVersionData,
+) *PackageLockJSONPackage {
 
 	return &PackageLockJSONPackage{
-		Integrity: view.Dist.Integrity,
-		Resolved:  view.Dist.Tarball,
-		Name:      name,
-		Version:   version,
-		Bin:       view.Bin,
-	}, nil
+		Integrity: pvd.Dist.Integrity,
+		Resolved:  pvd.Dist.Tarball,
+		Name:      pvd.Name,
+		Version:   pvd.Version,
+		Bin:       pvd.Bin,
+	}
 }
 
 func LoadPackageLockJSONPackageMetadatasFromDir(path string) ([]*PackageLockJSONPackage, error) {
