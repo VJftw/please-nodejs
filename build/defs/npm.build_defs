@@ -1,17 +1,15 @@
 subinclude("///nodejs//build/defs:utils")
 
 def nodejs_npm_package(
-    name: str,
-    package_name: str = None,
-    version: str,
-    deps: list = [],
-    license: str = None,
-    visibility = [],
-    registry: str = None,
-    toolchain: str = None,
-    please_nodejs_tool: str = None,
-    pnpm_tool: str = None,
-):
+        name: str,
+        package_name: str = None,
+        version: str,
+        deps: list = [],
+        license: str = None,
+        visibility = [],
+        registry: str = None,
+        toolchain: str = None,
+        please_nodejs_tool: str = None):
     """ Build rule for obtaining a remote NPM package from a registry.
     Args:
         name: The name of the build rule.
@@ -24,7 +22,6 @@ def nodejs_npm_package(
         registry: The registry to download the package from. This defaults to 'DefaultNPMRegistry'.
         toolchain: The toolchain to use to download the package. This defaults to 'DefaultToolchain'.
         please_nodejs_tool: The Please NodeJS tool to use. This defaults to 'Tool'.
-        pnpm_tool: The 'pnpm' tool to use. This defaults to 'PNPMTool'.
     """
     if not package_name:
         package_name = name
@@ -32,53 +29,58 @@ def nodejs_npm_package(
     toolchain = _param_or_global("toolchain", toolchain, "DefaultToolchain", "DEFAULT_TOOLCHAIN")
     registry = _param_or_global("registry", registry, "DefaultNPMRegistry", "DEFAULT_NPM_REGISTRY")
     please_nodejs_tool = _param_or_global("please_nodejs_tool", please_nodejs_tool, "Tool", "TOOL")
-    pnpm_tool = _param_or_global("pnpm_tool", pnpm_tool, "PNPMTool", "PNPM_TOOL")
 
-    # npm packages can't have '*'s in them, so we can use that as a replacement
-    # for the directory separator.
-    safe_package_name=package_name.replace("/", "*")
+    # npm packages can have / (directory separator) in them, replace with '___'.
+    safe_package_name = package_name.replace("/", "___")
 
     return genrule(
         name = name,
         tools = [
             please_nodejs_tool,
             toolchain,
-            pnpm_tool,
         ],
         deps = deps,
         cmd = f"""
-        set -Eeuo pipefail
+        set -Eexuo pipefail
         source $(location {toolchain})/venv.sh
-        pnpm="$(exe {pnpm_tool})"
-
-        "$pnpm" store add {package_name}@{version}
 
         # verify that dependencies are available
+        npm view {package_name}@{version} dependencies --json > required_dependencies.json
         "$(exe {please_nodejs_tool})" \\
             --log_format=console \\
             npmpackagedeps \\
-            --registry="{registry}" \\
-            --name="{package_name}" \\
-            --version="{version}"
+            --required_json="required_dependencies.json"
 
-        safe_pkg_name="$(echo "{package_name}" | sed 's#/#_#g')"
-        tar -czf $safe_pkg_name-{version}.tgz .local .cache
-        mv $safe_pkg_name-{version}.tgz $OUTS
+        # add the new module to the cache.
+        npm cache add {package_name}@{version}
+        npm view {package_name}@{version} --json > view.json
+        "$(exe {please_nodejs_tool})" \\
+            --log_format=console \\
+            create_npm_package_lock_meta \\
+            --name="{package_name}" \\
+            --version="{version}" \\
+            --view=view.json \\
+            --out=metadata.json
+
+        safe_pkg_name="$(echo "{package_name}" | sed 's#/#___#g')"
+        mv metadata.json $safe_pkg_name@{version}.metadata.json
+        tar -czf $safe_pkg_name@{version}.npmcache.tgz .npm
         """,
-        outs = [f"{safe_package_name}@{version}.tgz"],
+        outs = [
+            f"{safe_package_name}@{version}.npmcache.tgz",
+            f"{safe_package_name}@{version}.metadata.json",
+        ],
         visibility = visibility,
         exported_deps = deps,
     )
 
 def nodejs_package_json(
-    name: str,
-    deps: list = [],
-    extra: dict = {},
-    visibility: list = [],
-    please_nodejs_tool: str = None,
-    toolchain: str = None,
-    pnpm_tool: str = None,
-):
+        name: str,
+        deps: list = [],
+        extra: dict = {},
+        visibility: list = [],
+        please_nodejs_tool: str = None,
+        toolchain: str = None):
     """ Build rule for generating a package.json from the given deps.
     Args:
         name: The name of the build rule.
@@ -87,16 +89,14 @@ def nodejs_package_json(
         visibility: The targets to make the package.json visible to.
         please_nodejs_tool: The Please NodeJS tool to use. This defaults to 'Tool'.
         toolchain: The toolchain to use to download the package. This defaults to 'DefaultToolchain'.
-        pnpm_tool: The 'pnpm' tool to use. This defaults to 'PNPMTool'.
     """
     please_nodejs_tool = _param_or_global("please_nodejs_tool", please_nodejs_tool, "Tool", "TOOL")
-    pnpm_tool = _param_or_global("pnpm_tool", pnpm_tool, "PNPMTool", "PNPM_TOOL")
     toolchain = _param_or_global("toolchain", toolchain, "DefaultToolchain", "DEFAULT_TOOLCHAIN")
 
     extra_json = json(extra)
 
     package_json = genrule(
-        name = name,
+        name = f"{name}_json",
         deps = deps,
         needs_transitive_deps = True,
         tools = [please_nodejs_tool],
@@ -106,6 +106,8 @@ set -Eeuo pipefail
 cat <<EOF > extra.json
 {extra_json}
 EOF
+# construct package.json from existing metadata.
+
 "$(exe {please_nodejs_tool})" \\
     --log_format=console \\
     packagejson \\
@@ -117,38 +119,62 @@ EOF
         exported_deps = deps,
     )
 
-    pnpm_tool = _param_or_global("pnpm_tool", pnpm_tool, "PNPMTool", "PNPM_TOOL")
+    package_lock_json = genrule(
+        name = f"{name}_lock",
+        deps = deps,
+        needs_transitive_deps = True,
+        tools = [please_nodejs_tool],
+        outs = ["package-lock.json"],
+        cmd = f"""
+set -Eeuo pipefail
+
+# construct package-lock.json from existing metadata.
+"$(exe {please_nodejs_tool})" \\
+    --log_format=console \\
+    packagelockjson \\
+    --out="$OUTS"
+        """,
+        visibility = visibility,
+        exported_deps = deps,
+    )
+
     toolchain = _param_or_global("toolchain", toolchain, "DefaultToolchain", "DEFAULT_TOOLCHAIN")
 
     node_modules = genrule(
         name = f"{name}_node_modules",
         srcs = {
             "package_json": [package_json],
+            "package_lock_json": [package_lock_json],
         },
         needs_transitive_deps = True,
-        # TODO: fix #6
-        # sandbox = True,
+        sandbox = True,
         tools = [
             toolchain,
-            pnpm_tool,
         ],
         outs = ["node_modules/"],
-        deps = [package_json],
+        deps = [package_json, package_lock_json],
         cmd = f"""
         set -Eeuo pipefail
 
         source $(location {toolchain})/venv.sh
-        pnpm="$(exe {pnpm_tool})"
 
         find . -name '*.tgz' -exec tar -xzf {{}} \;
 
         mv $SRCS_PACKAGE_JSON package.json
-        # TODO: fix #6
-        # "$pnpm" install --offline
-        "$pnpm" install
+        mv $SRCS_PACKAGE_LOCK_JSON package-lock.json
+        npm ci --install-links
+        rsync --archive --verbose --copy-links ./node_modules/ ./node_modules_cp/
+        rm -rf node_modules_cp/.bin
+        mv node_modules/.bin node_modules_cp/
+        rm -rf node_modules
+        mv node_modules_cp node_modules
         """,
         visibility = visibility,
         labels = ["codegen"],
     )
 
-    return package_json
+    return filegroup(
+        name = name,
+        srcs = [package_json, package_lock_json],
+        visibility = visibility,
+    )

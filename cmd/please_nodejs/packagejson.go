@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/VJftw/please-nodejs/pkg/npm/pnpm"
+	"github.com/VJftw/please-nodejs/pkg/npm"
 	"github.com/peterbourgon/mergemap"
 	"github.com/urfave/cli/v2"
 )
@@ -29,7 +29,22 @@ func PackageJSONCommand() *cli.Command {
 				return err
 			}
 
-			depsManager, err := pnpm.NewDepsManager(cwd)
+			packages, err := npm.LoadPackageLockJSONPackageMetadatasFromDir(cwd)
+			if err != nil {
+				return err
+			}
+
+			packageJSON := &struct {
+				Dependencies map[string]string `json:"dependencies"`
+			}{
+				Dependencies: map[string]string{},
+			}
+
+			for _, pkg := range packages {
+				packageJSON.Dependencies[pkg.Name] = pkg.Version
+			}
+
+			packageJSONBytes, err := json.Marshal(packageJSON)
 			if err != nil {
 				return err
 			}
@@ -39,7 +54,7 @@ func PackageJSONCommand() *cli.Command {
 				packageJSONOut = filepath.Join(cwd, packageJSONOut)
 			}
 
-			if err := depsManager.CreatePackageJSON(packageJSONOut); err != nil {
+			if err := os.WriteFile(packageJSONOut, packageJSONBytes, 0660); err != nil {
 				return err
 			}
 
