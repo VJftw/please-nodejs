@@ -7,10 +7,12 @@ go_binary(
         "main.go",
         "npmpackagedeps.go",
         "packagejson.go",
+        "packagelockjson.go",
+        "pnpmpackagedeps.go",
     ],
-    static = True,
     visibility = ["PUBLIC"],
     deps = [
+        "///third_party/go/github.com_Masterminds_semver_v3//:v3",
         "///third_party/go/github.com_mattn_go-isatty//:go-isatty",
         "///third_party/go/github.com_peterbourgon_mergemap//:mergemap",
         "///third_party/go/github.com_rs_zerolog//:zerolog",

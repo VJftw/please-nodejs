@@ -1,24 +1,26 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 
-	"github.com/VJftw/please-nodejs/pkg/npm/pnpm"
+	"github.com/Masterminds/semver/v3"
+	"github.com/VJftw/please-nodejs/pkg/npm"
 	"github.com/urfave/cli/v2"
 )
 
-func NPMPackageCommand() *cli.Command {
+func NPMPackageDepsCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "npmpackagedeps",
 		Usage: "",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:     "registry",
-				Required: true,
+				Name:  "registry",
+				Value: "https://registry.npmjs.org",
 			},
 			&cli.StringFlag{
-				Name:     "name",
+				Name:     "package",
 				Required: true,
 			},
 			&cli.StringFlag{
@@ -26,39 +28,82 @@ func NPMPackageCommand() *cli.Command {
 				Required: true,
 			},
 			&cli.StringFlag{
-				Name:  "cache_dir",
-				Value: "~/.cache/pnpm",
+				Name:     "meta_out",
+				Required: true,
 			},
 		},
 		Action: func(cCtx *cli.Context) error {
-			cache, err := pnpm.NewCache(cCtx.String("cache_dir"))
+			npmClient, err := npm.NewClient(cCtx.String("registry"))
 			if err != nil {
-				return err
+				return fmt.Errorf("could not initialise npm client: %w", err)
 			}
 
-			pvd, err := cache.PackageMetadataVersion(
-				cCtx.String("registry"),
-				cCtx.String("name"),
+			pvd, err := npmClient.PackageVersion(
+				cCtx.String("package"),
 				cCtx.String("version"),
 			)
 			if err != nil {
 				return err
 			}
 
+			requiredDependencies := pvd.Dependencies
+
 			cwd, err := os.Getwd()
 			if err != nil {
 				return err
 			}
 
-			depsManager, err := pnpm.NewDepsManager(cwd)
+			availablePackages, err := npm.LoadPackageLockJSONPackageMetadatasFromDir(cwd)
 			if err != nil {
 				return err
 			}
 
-			for depName, depConstraint := range pvd.Dependencies {
-				if err := depsManager.MeetsDepConstraint(depName, depConstraint); err != nil {
-					return fmt.Errorf("did not meet constraint in '%s': %w", pvd.Name, err)
+			availableDependencies := map[string][]string{}
+			for _, pkg := range availablePackages {
+				if _, ok := availableDependencies[pkg.Name]; !ok {
+					availableDependencies[pkg.Name] = []string{}
 				}
+
+				availableDependencies[pkg.Name] = append(availableDependencies[pkg.Name], pkg.Version)
+			}
+
+			for rName, rConstraint := range requiredDependencies {
+				versions, ok := availableDependencies[rName]
+				if !ok {
+					return fmt.Errorf("%s is missing", rName)
+				}
+
+				c, err := semver.NewConstraint(rConstraint)
+				if err != nil {
+					return err
+				}
+
+				compatible := false
+				for _, version := range versions {
+					v, err := semver.NewVersion(version)
+					if err != nil {
+						return err
+					}
+
+					if c.Check(v) {
+						compatible = true
+					}
+				}
+
+				if !compatible {
+					return fmt.Errorf("%s@%v does not meet constraint %s: %s", rName, versions, rName, rConstraint)
+				}
+
+			}
+
+			meta := npm.PackageLockJSONPackageFromPVD(pvd)
+			metaJSONBytes, err := json.Marshal(meta)
+			if err != nil {
+				return err
+			}
+
+			if err := os.WriteFile(cCtx.String("meta_out"), metaJSONBytes, 0660); err != nil {
+				return err
 			}
 
 			return nil

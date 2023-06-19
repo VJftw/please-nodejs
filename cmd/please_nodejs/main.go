@@ -41,8 +41,10 @@ func main() {
 		},
 		Commands: []*cli.Command{
 			InstallCommand(),
-			NPMPackageCommand(),
+			PNPMPackageDepsCommand(),
+			NPMPackageDepsCommand(),
 			PackageJSONCommand(),
+			PackageLockJSONCommand(),
 		},
 		Before: func(cCtx *cli.Context) error {
 			level, err := zerolog.ParseLevel(cCtx.String("log_level"))

@@ -2,7 +2,7 @@ plugin_repo(
     name = "go",
     owner = "please-build",
     plugin = "go-rules",
-    revision = "v1.6.0",
+    revision = "v1.7.1",
 )
 
 plugin_repo(

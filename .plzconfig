@@ -53,12 +53,6 @@ Optional = true
 Help = "Sets the given address as the default NPM registry."
 DefaultValue = "registry.npmjs.org"
 
-[PluginConfig "pnpm_tool"]
-ConfigKey = PNPMTool
-Optional = true
-Help = "Sets the given target to use as 'pnpm'."
-DefaultValue = "//third_party/binary:pnpm"
-
 [PluginConfig "caddy_tool"]
 ConfigKey = CaddyTool
 Optional = true

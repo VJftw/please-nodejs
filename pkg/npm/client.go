@@ -3,6 +3,7 @@ package npm
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"path"
@@ -70,6 +71,8 @@ func (c *Client) PackageVersion(name string, version string) (*PackageVersionDat
 	}
 
 	req, err := http.NewRequest("GET", u.String(), nil)
+	log.Println(u.String())
+
 	if err != nil {
 		return nil, err
 	}

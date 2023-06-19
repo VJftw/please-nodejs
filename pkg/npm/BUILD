@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "client.go",
         "packagejson.go",
+        "packagelockjsonpackage.go",
         "packagemetadata.go",
         "packageversiondata.go",
     ],
