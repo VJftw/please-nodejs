@@ -53,7 +53,9 @@ def nodejs_npm_package(
             --meta_out=metadata.json
 
         # add the new module to the cache.
-        npm cache add {package_name}@{version}
+        npm cache add {package_name}@{version} \\
+            || npm cache add {package_name}@{version} \\
+            || npm cache add {package_name}@{version}
 
         safe_pkg_name="$(echo "{package_name}" | sed 's#/#___#g')"
         mv metadata.json $safe_pkg_name@{version}.metadata.json

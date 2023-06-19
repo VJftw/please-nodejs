@@ -15,5 +15,6 @@ go_library(
     ],
     deps = [
         "///third_party/go/github.com_Masterminds_semver_v3//:v3",
+        "///third_party/go/github.com_avast_retry-go_v4//:v4",
     ],
 )

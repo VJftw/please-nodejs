@@ -7,6 +7,9 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"time"
+
+	"github.com/avast/retry-go/v4"
 )
 
 type Client struct {
@@ -48,10 +51,22 @@ func (c *Client) Package(name string) (*PackageMetadata, error) {
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", c.UserAgent)
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
+	var resp *http.Response
+	if err := retry.Do(func() error {
+		var err error
+		resp, err = c.httpClient.Do(req)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	},
+		retry.Attempts(10),
+		retry.Delay(3*time.Second),
+	); err != nil {
 		return nil, err
 	}
+
 	defer resp.Body.Close()
 
 	pm := &PackageMetadata{}
@@ -79,8 +94,19 @@ func (c *Client) PackageVersion(name string, version string) (*PackageVersionDat
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", c.UserAgent)
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
+	var resp *http.Response
+	if err := retry.Do(func() error {
+		var err error
+		resp, err = c.httpClient.Do(req)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	},
+		retry.Attempts(10),
+		retry.Delay(3*time.Second),
+	); err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()

@@ -4,17 +4,18 @@ go 1.19
 
 require (
 	github.com/Masterminds/semver/v3 v3.2.0
+	github.com/avast/retry-go/v4 v4.3.4
 	github.com/mattn/go-isatty v0.0.16
 	github.com/mitchellh/go-homedir v1.1.0
+	github.com/peterbourgon/mergemap v0.0.1
 	github.com/rs/zerolog v1.28.0
-	github.com/stretchr/testify v1.8.1
+	github.com/stretchr/testify v1.8.2
 	github.com/urfave/cli/v2 v2.23.6
 )
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/golang/protobuf v1.4.3 // indirect
-	github.com/peterbourgon/mergemap v0.0.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	google.golang.org/protobuf v1.25.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
